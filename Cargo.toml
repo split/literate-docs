@@ -2,6 +2,9 @@
 name = "literate-docs"
 version = "0.1.0"
 edition = "2021"
+description = "Literate programming tool that executes code blocks in markdown"
+license = "MIT"
+repository = "https://github.com/split/literate-docs"
 
 [dependencies]
 pulldown-cmark = "0.11"
