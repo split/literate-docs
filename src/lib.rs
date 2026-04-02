@@ -197,13 +197,21 @@ fn execute_rust(code: &str) -> String {
 }
 
 pub fn render_markdown(input: &str) -> String {
-    use pulldown_cmark_to_cmark::cmark;
+    use pulldown_cmark_to_cmark::{cmark_with_options, Options, calculate_code_block_token_count, DEFAULT_CODE_BLOCK_TOKEN_COUNT};
     
     let parser = Parser::new(input);
     let events = process_events(parser);
+    let events_vec: Vec<_> = events.clone();
+    
+    // Calculate token count from the PROCESSED events (includes any nested output blocks)
+    let token_count = calculate_code_block_token_count(events_vec.iter())
+        .unwrap_or(DEFAULT_CODE_BLOCK_TOKEN_COUNT);
+    
+    let mut options = Options::default();
+    options.code_block_token_count = token_count;
     
     let mut output = String::new();
-    cmark(events.iter(), &mut output).ok();
+    cmark_with_options(events.iter(), &mut output, options).ok();
     
     output
 }
@@ -240,40 +248,75 @@ mod tests {
     fn test_shell_block_produces_output() {
         let input = "```sh\necho hello\n```";
         let output = render_markdown(input);
-        assert!(output.contains("echo hello"));
-        assert!(output.contains("```output"));
-        assert!(output.contains("hello"));
+        
+        let expected = r#"
+```sh
+echo hello
+```
+
+```output
+hello
+```"#;
+        assert_eq!(output, expected);
     }
 
     #[test]
     fn test_unknown_language_block_unchanged() {
         let input = "```mermaid\ngraph TD; A-->B;\n```";
         let output = render_markdown(input);
-        assert!(output.contains("mermaid"));
-        assert!(!output.contains("output"));
+        
+        assert_eq!(output, "\n```mermaid\ngraph TD; A-->B;\n```");
     }
 
     #[test]
     fn test_no_language_block_unchanged() {
         let input = "```\nsome code\n```";
         let output = render_markdown(input);
-        assert!(output.contains("some code"));
+        
+        assert_eq!(output, "\n```\nsome code\n```");
     }
 
     #[test]
     fn test_multiple_code_blocks() {
         let input = "```sh\necho one\n```\n\n```sh\necho two\n```";
         let output = render_markdown(input);
-        assert!(output.contains("one"));
-        assert!(output.contains("two"));
+        
+        let expected = r#"
+```sh
+echo one
+```
+
+```output
+one
+```
+
+```sh
+echo two
+```
+
+```output
+two
+```"#;
+        assert_eq!(output, expected);
     }
 
     #[test]
     fn test_text_preserved() {
         let input = "# Hello World\n\nSome text here.\n\n```sh\necho test\n```";
         let output = render_markdown(input);
-        assert!(output.contains("# Hello World"));
-        assert!(output.contains("Some text here"));
+        
+        let expected = r#"# Hello World
+
+Some text here.
+
+```sh
+echo test
+```
+
+```output
+test
+```"#;
+        assert_eq!(output, expected);
     }
 
     #[test]
@@ -282,12 +325,6 @@ mod tests {
         let output1 = render_markdown(input);
         let output2 = render_markdown(&output1);
         
-        // Should not add duplicate output blocks - output2 should have same number of code blocks
-        let code_blocks1: Vec<&str> = output1.lines().filter(|l| l.trim().starts_with("```")).collect();
-        let code_blocks2: Vec<&str> = output2.lines().filter(|l| l.trim().starts_with("```")).collect();
-        
-        assert_eq!(code_blocks1.len(), code_blocks2.len(), 
-            "Code block count should be same after second run.\noutput1: {:?}\noutput2: {:?}", 
-            code_blocks1, code_blocks2);
+        assert_eq!(output1, output2);
     }
 }
