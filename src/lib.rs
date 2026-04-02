@@ -2,19 +2,48 @@ use pulldown_cmark::{Parser, Event, Tag, TagEnd, CodeBlockKind, CodeBlockKind::F
 use std::process::Command;
 use std::fs;
 
-fn is_output_code_block(events: &[Event], after_idx: usize) -> bool {
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum OutputFormat {
+    CodeBlock,
+    Comment,
+}
+
+fn detect_existing_output(events: &[Event], after_idx: usize) -> Option<OutputFormat> {
     for event in events.iter().skip(after_idx + 1) {
         match event {
+            // Check for code block: ```output
             Event::Start(Tag::CodeBlock(Fenced(info))) => {
                 let lang = info.split_whitespace().next().unwrap_or("");
-                return lang == "output";
+                if lang == "output" {
+                    return Some(OutputFormat::CodeBlock);
+                }
+                return None;
+            }
+            // Check for HTML comment in HtmlBlock start
+            Event::Start(Tag::HtmlBlock) => {
+                // Check the next event for the actual HTML content
+                if let Some(next_event) = events.iter().skip(after_idx + 2).next() {
+                    if let Event::Html(content) = next_event {
+                        if content.contains("<!-- output:") {
+                            return Some(OutputFormat::Comment);
+                        }
+                    }
+                }
+                return None;
+            }
+            // Check for inline HTML comment
+            Event::Html(content) => {
+                if content.contains("<!-- output:") {
+                    return Some(OutputFormat::Comment);
+                }
+                return None;
             }
             Event::Text(_) => continue,
             Event::End(TagEnd::CodeBlock) => continue,
             _ => break,
         }
     }
-    false
+    None
 }
 
 pub fn process_events<'a>(parser: Parser<'a>) -> Vec<Event<'a>> {
@@ -29,6 +58,7 @@ pub fn process_events<'a>(parser: Parser<'a>) -> Vec<Event<'a>> {
     for (idx, event) in all_events.iter().enumerate() {
         // Skip events if we're in a skipped output block
         if skip_depth > 0 {
+            // Handle code block output
             if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event {
                 let lang = info.split_whitespace().next().unwrap_or("");
                 if lang == "output" {
@@ -37,6 +67,16 @@ pub fn process_events<'a>(parser: Parser<'a>) -> Vec<Event<'a>> {
             }
             if let Event::End(TagEnd::CodeBlock) = event {
                 skip_depth -= 1;
+            }
+            // Handle comment output - decrement and check if we're done
+            if let Event::Html(content) = event {
+                if content.contains("<!-- output:") {
+                    skip_depth -= 1;
+                }
+            }
+            if skip_depth == 0 {
+                // Done skipping, continue to next event
+                continue;
             }
             continue;
         }
@@ -86,23 +126,33 @@ pub fn process_events<'a>(parser: Parser<'a>) -> Vec<Event<'a>> {
                         String::new()
                     };
                     
-                    // Look ahead: if there's already an output block after this one
-                    let existing_output = is_output_code_block(&all_events, idx);
+                    // Look ahead: detect existing output format (code block or comment)
+                    let existing_format = detect_existing_output(&all_events, idx);
+                    
+                    // Default to code block if no existing output
+                    let format = existing_format.unwrap_or(OutputFormat::CodeBlock);
                     
                     events.push(Event::Text(code.into()));
                     events.push(event.clone());
                     
-                    // Always add our output (this will replace any existing)
+                    // Add output in the detected/matched format
                     if !output.is_empty() {
-                        events.push(Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced("output".into()))));
-                        events.push(Event::Text(output.into()));
-                        events.push(Event::End(TagEnd::CodeBlock));
+                        match format {
+                            OutputFormat::CodeBlock => {
+                                events.push(Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced("output".into()))));
+                                events.push(Event::Text(output.into()));
+                                events.push(Event::End(TagEnd::CodeBlock));
+                            }
+                            OutputFormat::Comment => {
+                                events.push(Event::Html(format!("\n<!-- output: {} -->\n", output).into()));
+                            }
+                        }
                     }
                     
                     in_fenced_code = false;
                     
-                    // If there's an existing output block after us, skip it to avoid duplication
-                    if existing_output {
+                    // If there's an existing output after us, skip it to avoid duplication
+                    if existing_format.is_some() {
                         skip_depth = 1;
                     }
                 } else {
@@ -326,5 +376,36 @@ test
         let output2 = render_markdown(&output1);
         
         assert_eq!(output1, output2);
+    }
+
+    #[test]
+    fn test_comment_output_format() {
+        // Input with existing comment output format should preserve it
+        let input = "```sh\necho hello\n```\n\n<!-- output: hello -->";
+        let output = render_markdown(input);
+        
+        eprintln!("DEBUG output: {:?}", output);
+        
+        // Should add comment output and skip existing comment
+        assert!(output.contains("<!-- output: hello -->"), "Should contain comment output");
+        assert!(!output.contains("```output"), "Should not have code block output");
+    }
+
+    #[test]
+    fn test_comment_output_idempotency() {
+        // Running twice with comment format should be idempotent
+        let input = "```sh\necho hello\n```\n\n<!-- output: hello -->";
+        
+        // First run
+        let output1 = render_markdown(input);
+        
+        // Check that it doesn't contain error
+        assert!(!output1.contains("Error:"), "First run should not have error: {}", output1);
+        
+        // Second run  
+        let output2 = render_markdown(&output1);
+        
+        // The outputs should be the same - both should have comment format and not contain errors
+        assert_eq!(output1, output2, "Running twice with comment format should be idempotent");
     }
 }
