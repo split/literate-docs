@@ -129,7 +129,7 @@ pub fn execute_code(lang: &str, code: &str) -> String {
         "go" => ("go", "run", code),
         "rust" => return execute_rust(code),
         _ => {
-            return format!("Error: Unknown language '{}'", lang);
+            return String::new();
         }
     };
 
@@ -231,9 +231,9 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_language_returns_error() {
+    fn test_unknown_language_skipped() {
         let result = execute_code("mermaid", "graph TD; A-->B;");
-        assert!(result.contains("Unknown language"));
+        assert!(result.is_empty(), "Unknown language should return empty string, not error");
     }
 
     #[test]
