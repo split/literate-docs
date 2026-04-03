@@ -1,28 +1,18 @@
 use markdown::mdast::Node;
+use crate::execute_code_blocks::ExecutableCodeBlock;
 
-#[derive(Debug, Clone)]
-pub struct CodeBlock {
-    pub lang: Option<String>,
-    pub value: String,
-}
-
-pub fn extract_code_blocks(node: &Node) -> Vec<CodeBlock> {
-    fn walk(node: &Node, blocks: &mut Vec<CodeBlock>) {
-        if let Some(children) = node.children() {
-            for child in children.iter() {
+pub fn extract_executable_code_blocks(node: &Node) -> Vec<ExecutableCodeBlock> {
+    match node.children() {
+        Some(children) => children
+            .iter()
+            .flat_map(|child| {
                 if let Node::Code(code) = child {
-                    blocks.push(CodeBlock {
-                        lang: code.lang.clone(),
-                        value: code.value.clone(),
-                    });
+                    ExecutableCodeBlock::try_from(code).ok().into_iter().collect()
                 } else {
-                    walk(child, blocks);
+                    extract_executable_code_blocks(child)
                 }
-            }
-        }
+            })
+            .collect(),
+        None => Vec::new(),
     }
-
-    let mut blocks = Vec::new();
-    walk(node, &mut blocks);
-    blocks
 }

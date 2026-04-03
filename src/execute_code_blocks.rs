@@ -1,29 +1,40 @@
 use std::process::Command;
 use std::fs;
-use markdown::mdast::Node;
-use crate::extract_code_blocks::CodeBlock;
+use markdown::mdast::Code;
 
-const EXECUTABLE_LANGUAGES: &[&str] = &["sh", "bash", "shell", "python", "python3", "js", "javascript", "node", "ruby", "perl", "php", "go", "rust"];
+pub const EXECUTABLE_LANGUAGES: &[&str] = &["sh", "bash", "shell", "python", "python3", "js", "javascript", "node", "ruby", "perl", "php", "go", "rust"];
 
-pub fn is_executable_code(node: &Node) -> bool {
-    match node {
-        Node::Code(c) => {
-            let lang = c.lang.as_deref().unwrap_or("");
-            EXECUTABLE_LANGUAGES.contains(&lang)
+#[derive(Debug, Clone)]
+pub struct ExecutableCodeBlock {
+    pub lang: String,
+    pub code: String,
+}
+
+impl TryFrom<&Code> for ExecutableCodeBlock {
+    type Error = ();
+
+    fn try_from(code: &Code) -> Result<Self, Self::Error> {
+        let lang = code.lang.as_deref().ok_or(())?;
+        if is_executable(lang) {
+            Ok(ExecutableCodeBlock {
+                lang: lang.to_string(),
+                code: code.value.clone(),
+            })
+        } else {
+            Err(())
         }
-        _ => false,
     }
 }
 
-pub fn execute_code_blocks(blocks: &[CodeBlock]) -> Vec<String> {
+pub fn is_executable(lang: &str) -> bool {
+    EXECUTABLE_LANGUAGES.contains(&lang)
+}
+
+pub fn execute_code_blocks(blocks: &[ExecutableCodeBlock]) -> Vec<String> {
     blocks
         .iter()
         .filter_map(|block| {
-            let lang = block.lang.as_deref().unwrap_or("");
-            if lang == "output" || !EXECUTABLE_LANGUAGES.contains(&lang) {
-                return None;
-            }
-            let output = execute_code(lang, &block.value);
+            let output = execute_code(&block.lang, &block.code);
             if output.is_empty() {
                 return None;
             }

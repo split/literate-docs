@@ -1,17 +1,17 @@
 use markdown::mdast::Node;
-use mdast_util_to_markdown::to_markdown;
 use crate::parse_markdown::parse_markdown;
-use crate::extract_code_blocks::extract_code_blocks;
+use crate::extract_code_blocks::extract_executable_code_blocks;
 use crate::execute_code_blocks::execute_code_blocks;
 use crate::with_output_nodes::with_output_nodes;
 use crate::fill_output_blocks::fill_output_blocks;
+use mdast_util_to_markdown::to_markdown;
 
 pub fn render_markdown(input: &str) -> String {
     let has_trailing_newline = input.ends_with('\n');
 
     let ast = parse_markdown(input);
 
-    let transformed = transform_markdown(ast);
+    let transformed = transform_ast(ast);
 
     let mut output = to_markdown(&transformed)
         .expect("Failed to compile markdown");
@@ -23,8 +23,8 @@ pub fn render_markdown(input: &str) -> String {
     output
 }
 
-fn transform_markdown(ast: Node) -> Node {
-    let blocks = extract_code_blocks(&ast);
+pub fn transform_ast(ast: Node) -> Node {
+    let blocks = extract_executable_code_blocks(&ast);
     let outputs = execute_code_blocks(&blocks);
     let placed = with_output_nodes(&ast);
     fill_output_blocks(&placed, &mut outputs.into_iter())

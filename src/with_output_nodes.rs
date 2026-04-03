@@ -1,10 +1,20 @@
 use markdown::mdast::{Node, Code};
-use crate::execute_code_blocks::is_executable_code;
+use crate::execute_code_blocks::is_executable;
 
 pub fn is_output_node(node: &Node) -> bool {
     match node {
         Node::Code(c) => c.lang.as_deref() == Some("output"),
         Node::Html(h) => h.value.contains("<!-- output:"),
+        _ => false,
+    }
+}
+
+fn is_executable_code_node(node: &Node) -> bool {
+    match node {
+        Node::Code(c) => {
+            let lang = c.lang.as_deref().unwrap_or("");
+            is_executable(lang)
+        }
         _ => false,
     }
 }
@@ -34,7 +44,7 @@ pub fn with_output_nodes(node: &Node) -> Node {
 
                 let placed = place_node(child);
 
-                if is_executable_code(child) {
+                if is_executable_code_node(child) {
                     let has_output = if i + 1 < children.len() {
                         is_output_node(&children[i + 1])
                     } else {
