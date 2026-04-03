@@ -1,11 +1,11 @@
 use std::env;
 use std::fs;
 use std::io::{self, Read};
-use literate_docs::render_markdown;
+use literate_docs::literate_docs;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     let input_content = if args.len() > 1 {
         fs::read_to_string(&args[1]).expect("Failed to read file")
     } else {
@@ -14,7 +14,7 @@ fn main() {
         buffer
     };
 
-    let output = render_markdown(&input_content);
-    
+    let output = literate_docs(&input_content);
+
     print!("{}", output);
 }
