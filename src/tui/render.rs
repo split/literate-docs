@@ -79,19 +79,10 @@ pub fn build_render_nodes(ast: &Node) -> Vec<RenderNode> {
 fn collect_nodes(node: &Node, nodes: &mut Vec<RenderNode>, code_index: &mut usize) {
     if is_output_node(node) {
         let idx = code_index.saturating_sub(1);
-        if let Node::Code(_) = node {
-            nodes.push(RenderNode::OutputBlock {
-                code_index: idx,
-                state: OutputState::Pending,
-            });
-        } else if let Node::Html(h) = node {
-            if h.value.contains("<!-- output:") {
-                nodes.push(RenderNode::OutputBlock {
-                    code_index: idx,
-                    state: OutputState::Pending,
-                });
-            }
-        }
+        nodes.push(RenderNode::OutputBlock {
+            code_index: idx,
+            state: OutputState::Pending,
+        });
         return;
     }
 
