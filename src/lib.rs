@@ -1,85 +1,177 @@
 use std::process::Command;
 use std::fs;
 use markdown::{to_mdast, ParseOptions};
-use markdown::mdast::{Node, Code};
+use markdown::mdast::{Node, Code, Html};
 use mdast_util_to_markdown::to_markdown;
 
 const EXECUTABLE_LANGUAGES: &[&str] = &["sh", "bash", "shell", "python", "python3", "js", "javascript", "node", "ruby", "perl", "php", "go", "rust"];
 
-fn transform_markdown(ast: Node) -> Node {
-    let mut ast = ast;
+#[derive(Debug, Clone)]
+struct CodeBlock {
+    lang: Option<String>,
+    value: String,
+}
+
+fn find_code_blocks(node: &Node) -> Vec<CodeBlock> {
+    fn walk(node: &Node, blocks: &mut Vec<CodeBlock>) {
+        if let Some(children) = node.children() {
+            for child in children.iter() {
+                if let Node::Code(code) = child {
+                    blocks.push(CodeBlock {
+                        lang: code.lang.clone(),
+                        value: code.value.clone(),
+                    });
+                } else {
+                    walk(child, blocks);
+                }
+            }
+        }
+    }
     
-    fn collect_insertions(children: &[Node]) -> Vec<(usize, Node)> {
-        let mut insertions = Vec::new();
-        
-        let mut i = 0;
-        while i < children.len() {
-            if let Node::Code(code) = &children[i] {
-                let lang = code.lang.as_deref().unwrap_or("");
+    let mut blocks = Vec::new();
+    walk(node, &mut blocks);
+    blocks
+}
+
+fn execute_blocks(blocks: &[CodeBlock]) -> Vec<String> {
+    blocks
+        .iter()
+        .filter_map(|block| {
+            let lang = block.lang.as_deref().unwrap_or("");
+            if lang == "output" || !EXECUTABLE_LANGUAGES.contains(&lang) {
+                return None;
+            }
+            let output = execute_code(lang, &block.value);
+            if output.is_empty() {
+                return None;
+            }
+            Some(output)
+        })
+        .collect()
+}
+
+fn is_output_node(node: &Node) -> bool {
+    match node {
+        Node::Code(c) => c.lang.as_deref() == Some("output"),
+        Node::Html(h) => h.value.contains("<!-- output:"),
+        _ => false,
+    }
+}
+
+fn is_executable_code(node: &Node) -> bool {
+    match node {
+        Node::Code(c) => {
+            let lang = c.lang.as_deref().unwrap_or("");
+            EXECUTABLE_LANGUAGES.contains(&lang)
+        }
+        _ => false,
+    }
+}
+
+fn create_empty_output_placeholder() -> Node {
+    Node::Code(Code {
+        value: String::new(),
+        lang: Some("output".to_string()),
+        meta: None,
+        position: None,
+    })
+}
+
+fn place_outputs(node: &Node) -> Node {
+    fn place_node(node: &Node) -> Node {
+        if let Some(children) = node.children() {
+            let mut result = Vec::new();
+            let mut i = 0;
+            while i < children.len() {
+                let child = &children[i];
                 
-                // Skip output blocks and re-execution
-                if lang == "output" {
+                if is_output_node(child) {
+                    result.push(child.to_owned());
                     i += 1;
                     continue;
                 }
                 
-                if EXECUTABLE_LANGUAGES.contains(&lang) {
-                    let output = execute_code(lang, &code.value);
-                    
-                    // Check if there's an existing HTML comment output after this code block
-                    let has_comment_output = if i + 1 < children.len() {
-                        matches!(&children[i + 1], Node::Html(h) if h.value.contains("<!-- output:"))
+                let placed = place_node(child);
+                
+                if is_executable_code(child) {
+                    let has_output = if i + 1 < children.len() {
+                        is_output_node(&children[i + 1])
                     } else {
                         false
                     };
                     
-                    if !output.is_empty() && !has_comment_output {
-                        // Check if there's already a code block output
-                        let has_code_output = if i + 1 < children.len() {
-                            matches!(&children[i + 1], Node::Code(c) if c.lang.as_deref() == Some("output"))
-                        } else {
-                            false
-                        };
-                        
-                        if !has_code_output {
-                            insertions.push((i, Node::Code(Code {
-                                value: output,
-                                lang: Some("output".to_string()),
-                                meta: None,
-                                position: None,
-                            })));
-                        }
+                    result.push(placed);
+                    if !has_output {
+                        result.push(create_empty_output_placeholder());
                     }
+                } else {
+                    result.push(placed);
                 }
-            } else if let Node::Html(html) = &children[i] {
-                // Skip HTML comment outputs to avoid duplication
-                if html.value.contains("<!-- output:") {
-                    i += 1;
-                    continue;
-                }
-            }
-            i += 1;
-        }
-        
-        insertions
-    }
-    
-    fn walk(node: &mut Node) {
-        if let Some(children) = node.children_mut() {
-            let insertions = collect_insertions(children);
-            
-            for (idx, new_node) in insertions.into_iter().enumerate() {
-                children.insert(new_node.0 + idx + 1, new_node.1);
+                
+                i += 1;
             }
             
-            for child in children.iter_mut() {
-                walk(child);
+            let mut owned = node.to_owned();
+            if let Some(children_mut) = owned.children_mut() {
+                *children_mut = result;
             }
+            owned
+        } else {
+            node.to_owned()
         }
     }
     
-    walk(&mut ast);
-    ast
+    place_node(node)
+}
+
+fn fill_outputs(node: &Node, outputs: &mut impl Iterator<Item = String>) -> Node {
+    fn fill_children(children: &[Node], outputs: &mut impl Iterator<Item = String>) -> Vec<Node> {
+        children.iter()
+            .map(|child| fill_outputs(child, outputs))
+            .collect()
+    }
+    
+    if let Some(children) = node.children() {
+        let filled = fill_children(children, outputs);
+        let mut owned = node.to_owned();
+        if let Some(children_mut) = owned.children_mut() {
+            *children_mut = filled;
+        }
+        owned
+    } else {
+        match node {
+            Node::Code(code) if code.lang.as_deref() == Some("output") => {
+                if let Some(output) = outputs.next() {
+                    Node::Code(Code {
+                        value: output,
+                        lang: Some("output".to_string()),
+                        meta: None,
+                        position: None,
+                    })
+                } else {
+                    node.to_owned()
+                }
+            }
+            Node::Html(html) if html.value.contains("<!-- output:") => {
+                if let Some(output) = outputs.next() {
+                    Node::Html(Html {
+                        value: format!("<!-- output: {} -->", output),
+                        position: None,
+                    })
+                } else {
+                    node.to_owned()
+                }
+            }
+            _ => node.to_owned()
+        }
+    }
+}
+
+fn transform_markdown(ast: Node) -> Node {
+    let blocks = find_code_blocks(&ast);
+    let outputs = execute_blocks(&blocks);
+    let placed = place_outputs(&ast);
+    fill_outputs(&placed, &mut outputs.into_iter())
 }
 
 pub fn execute_code(lang: &str, code: &str) -> String {
@@ -308,5 +400,41 @@ test
         let output2 = render_markdown(&output1);
         
         assert_eq!(output1, output2, "Running twice with comment format should be idempotent");
+    }
+
+    #[test]
+    fn test_stale_comment_output_updated() {
+        let input = "```sh\necho hello\n```\n\n<!-- output: stale_value -->";
+        let output = render_markdown(input);
+        
+        assert!(output.contains("<!-- output: hello -->"), "Should update stale comment to correct output: {}", output);
+        assert!(!output.contains("stale_value"), "Should not contain stale value: {}", output);
+        assert!(!output.contains("```output"), "Should not add code block output when comment exists: {}", output);
+    }
+
+    #[test]
+    fn test_stale_code_block_output_updated() {
+        let input = "```sh\necho hello\n```\n\n```output\nstale_value\n```";
+        let output = render_markdown(input);
+        
+        assert!(output.contains("```output\nhello\n```"), "Should update stale code block output to correct value: {}", output);
+        assert!(!output.contains("stale_value"), "Should not contain stale value: {}", output);
+    }
+
+    #[test]
+    fn test_fresh_output_becomes_code_block() {
+        let input = "```sh\necho hello\n```";
+        let output = render_markdown(input);
+        
+        assert!(output.contains("```output\nhello\n```"), "Should create code block output for fresh execution: {}", output);
+    }
+
+    #[test]
+    fn test_idempotent_code_block_output() {
+        let input = "```sh\necho hello\n```";
+        let output1 = render_markdown(input);
+        let output2 = render_markdown(&output1);
+        
+        assert_eq!(output1, output2, "Running twice with code block output should be idempotent");
     }
 }
