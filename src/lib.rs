@@ -1,168 +1,85 @@
-use pulldown_cmark::{Parser, Event, Tag, TagEnd, CodeBlockKind, CodeBlockKind::Fenced};
 use std::process::Command;
 use std::fs;
+use markdown::{to_mdast, ParseOptions};
+use markdown::mdast::{Node, Code};
+use mdast_util_to_markdown::to_markdown;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-enum OutputFormat {
-    CodeBlock,
-    Comment,
-}
+const EXECUTABLE_LANGUAGES: &[&str] = &["sh", "bash", "shell", "python", "python3", "js", "javascript", "node", "ruby", "perl", "php", "go", "rust"];
 
-fn detect_existing_output(events: &[Event], after_idx: usize) -> Option<OutputFormat> {
-    for event in events.iter().skip(after_idx + 1) {
-        match event {
-            // Check for code block: ```output
-            Event::Start(Tag::CodeBlock(Fenced(info))) => {
-                let lang = info.split_whitespace().next().unwrap_or("");
-                if lang == "output" {
-                    return Some(OutputFormat::CodeBlock);
-                }
-                return None;
-            }
-            // Check for HTML comment in HtmlBlock start
-            Event::Start(Tag::HtmlBlock) => {
-                if let Some(Event::Html(content)) = events.get(after_idx + 2) {
-                    if content.contains("<!-- output:") {
-                        return Some(OutputFormat::Comment);
-                    }
-                }
-                return None;
-            }
-            // Check for inline HTML comment
-            Event::Html(content) => {
-                if content.contains("<!-- output:") {
-                    return Some(OutputFormat::Comment);
-                }
-                return None;
-            }
-            Event::Text(_) => continue,
-            Event::End(TagEnd::CodeBlock) => continue,
-            _ => break,
-        }
-    }
-    None
-}
-
-pub fn process_events<'a>(parser: Parser<'a>) -> Vec<Event<'a>> {
-    let mut events: Vec<Event<'a>> = Vec::new();
-    let mut in_fenced_code = false;
-    let mut code_content = String::new();
-    let mut code_lang = String::new();
-    let mut skip_depth = 0;  // How many nested output blocks to skip
+fn transform_markdown(ast: Node) -> Node {
+    let mut ast = ast;
     
-    let all_events: Vec<_> = parser.collect();
-    
-    for (idx, event) in all_events.iter().enumerate() {
-        // Skip events if we're in a skipped output block
-        if skip_depth > 0 {
-            // Handle code block output
-            if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event {
-                let lang = info.split_whitespace().next().unwrap_or("");
-                if lang == "output" {
-                    skip_depth += 1;
-                }
-            }
-            if let Event::End(TagEnd::CodeBlock) = event {
-                skip_depth -= 1;
-            }
-            // Handle comment output - decrement and check if we're done
-            if let Event::Html(content) = event {
-                if content.contains("<!-- output:") {
-                    skip_depth -= 1;
-                }
-            }
-            if skip_depth == 0 {
-                // Done skipping, continue to next event
-                continue;
-            }
-            continue;
-        }
+    fn collect_insertions(children: &[Node]) -> Vec<(usize, Node)> {
+        let mut insertions = Vec::new();
         
-        match &event {
-            Event::Text(text) => {
-                if in_fenced_code {
-                    code_content.push_str(text);
-                } else {
-                    events.push(event.clone());
+        let mut i = 0;
+        while i < children.len() {
+            if let Node::Code(code) = &children[i] {
+                let lang = code.lang.as_deref().unwrap_or("");
+                
+                // Skip output blocks and re-execution
+                if lang == "output" {
+                    i += 1;
+                    continue;
                 }
-            }
-            Event::Start(Tag::CodeBlock(kind)) => {
-                match kind {
-                    CodeBlockKind::Indented => {
-                        events.push(event.clone());
-                    }
-                    CodeBlockKind::Fenced(info) => {
-                        in_fenced_code = true;
-                        code_content.clear();
-                        code_lang = info.split_whitespace().next().unwrap_or("").to_string();
-                        events.push(event.clone());
-                    }
-                }
-            }
-            Event::End(TagEnd::CodeBlock) => {
-                if in_fenced_code {
-                    let code = code_content.clone();
-                    let lang = code_lang.clone();
+                
+                if EXECUTABLE_LANGUAGES.contains(&lang) {
+                    let output = execute_code(lang, &code.value);
                     
-                    let is_output_block = lang == "output";
-                    
-                    if is_output_block {
-                        if !code_content.is_empty() {
-                            events.push(Event::Text(code_content.clone().into()));
-                        }
-                        events.push(event.clone());
-                        in_fenced_code = false;
-                        continue;
-                    }
-                    
-                    let should_execute = matches!(lang.as_str(), "sh" | "bash" | "shell" | "python" | "python3" | "js" | "javascript" | "node" | "ruby" | "perl" | "php" | "go" | "rust");
-                    
-                    let output = if should_execute {
-                        execute_code(&lang, &code)
+                    // Check if there's an existing HTML comment output after this code block
+                    let has_comment_output = if i + 1 < children.len() {
+                        matches!(&children[i + 1], Node::Html(h) if h.value.contains("<!-- output:"))
                     } else {
-                        String::new()
+                        false
                     };
                     
-                    // Look ahead: detect existing output format (code block or comment)
-                    let existing_format = detect_existing_output(&all_events, idx);
-                    
-                    // Default to code block if no existing output
-                    let format = existing_format.unwrap_or(OutputFormat::CodeBlock);
-                    
-                    events.push(Event::Text(code.into()));
-                    events.push(event.clone());
-                    
-                    // Add output in the detected/matched format
-                    if !output.is_empty() {
-                        match format {
-                            OutputFormat::CodeBlock => {
-                                events.push(Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced("output".into()))));
-                                events.push(Event::Text(output.into()));
-                                events.push(Event::End(TagEnd::CodeBlock));
-                            }
-                            OutputFormat::Comment => {
-                                events.push(Event::Html(format!("\n<!-- output: {} -->\n", output).into()));
-                            }
+                    if !output.is_empty() && !has_comment_output {
+                        // Check if there's already a code block output
+                        let has_code_output = if i + 1 < children.len() {
+                            matches!(&children[i + 1], Node::Code(c) if c.lang.as_deref() == Some("output"))
+                        } else {
+                            false
+                        };
+                        
+                        if !has_code_output {
+                            insertions.push((i, Node::Code(Code {
+                                value: output,
+                                lang: Some("output".to_string()),
+                                meta: None,
+                                position: None,
+                            })));
                         }
                     }
-                    
-                    in_fenced_code = false;
-                    
-                    // If there's an existing output after us, skip it to avoid duplication
-                    if existing_format.is_some() {
-                        skip_depth = 1;
-                    }
-                } else {
-                    events.push(event.clone());
+                }
+            } else if let Node::Html(html) = &children[i] {
+                // Skip HTML comment outputs to avoid duplication
+                if html.value.contains("<!-- output:") {
+                    i += 1;
+                    continue;
                 }
             }
-            _ => {
-                events.push(event.clone());
+            i += 1;
+        }
+        
+        insertions
+    }
+    
+    fn walk(node: &mut Node) {
+        if let Some(children) = node.children_mut() {
+            let insertions = collect_insertions(children);
+            
+            for (idx, new_node) in insertions.into_iter().enumerate() {
+                children.insert(new_node.0 + idx + 1, new_node.1);
+            }
+            
+            for child in children.iter_mut() {
+                walk(child);
             }
         }
     }
     
-    events
+    walk(&mut ast);
+    ast
 }
 
 pub fn execute_code(lang: &str, code: &str) -> String {
@@ -244,20 +161,19 @@ fn execute_rust(code: &str) -> String {
 }
 
 pub fn render_markdown(input: &str) -> String {
-    use pulldown_cmark_to_cmark::{cmark_with_options, Options, calculate_code_block_token_count, DEFAULT_CODE_BLOCK_TOKEN_COUNT};
+    let has_trailing_newline = input.ends_with('\n');
     
-    let parser = Parser::new(input);
-    let events = process_events(parser);
-    let events_vec: Vec<_> = events.clone();
+    let ast = to_mdast(input, &ParseOptions::default())
+        .expect("Failed to parse markdown");
     
-    // Calculate token count from the PROCESSED events (includes any nested output blocks)
-    let token_count = calculate_code_block_token_count(events_vec.iter())
-        .unwrap_or(DEFAULT_CODE_BLOCK_TOKEN_COUNT);
+    let transformed = transform_markdown(ast);
     
-    let options = Options::<'_> { code_block_token_count: token_count, ..Default::default() };
+    let mut output = to_markdown(&transformed)
+        .expect("Failed to compile markdown");
     
-    let mut output = String::new();
-    cmark_with_options(events.iter(), &mut output, options).ok();
+    if !has_trailing_newline {
+        output = output.trim_end_matches('\n').to_string();
+    }
     
     output
 }
@@ -295,8 +211,7 @@ mod tests {
         let input = "```sh\necho hello\n```";
         let output = render_markdown(input);
         
-        let expected = r#"
-```sh
+        let expected = r#"```sh
 echo hello
 ```
 
@@ -311,7 +226,7 @@ hello
         let input = "```mermaid\ngraph TD; A-->B;\n```";
         let output = render_markdown(input);
         
-        assert_eq!(output, "\n```mermaid\ngraph TD; A-->B;\n```");
+        assert_eq!(output, "```mermaid\ngraph TD; A-->B;\n```");
     }
 
     #[test]
@@ -319,7 +234,7 @@ hello
         let input = "```\nsome code\n```";
         let output = render_markdown(input);
         
-        assert_eq!(output, "\n```\nsome code\n```");
+        assert_eq!(output, "```\nsome code\n```");
     }
 
     #[test]
@@ -327,8 +242,7 @@ hello
         let input = "```sh\necho one\n```\n\n```sh\necho two\n```";
         let output = render_markdown(input);
         
-        let expected = r#"
-```sh
+        let expected = r#"```sh
 echo one
 ```
 
@@ -376,30 +290,23 @@ test
 
     #[test]
     fn test_comment_output_format() {
-        // Input with existing comment output format should preserve it
         let input = "```sh\necho hello\n```\n\n<!-- output: hello -->";
         let output = render_markdown(input);
         
-        // Should add comment output and skip existing comment
         assert!(output.contains("<!-- output: hello -->"), "Should contain comment output");
         assert!(!output.contains("```output"), "Should not have code block output");
     }
 
     #[test]
     fn test_comment_output_idempotency() {
-        // Running twice with comment format should be idempotent
         let input = "```sh\necho hello\n```\n\n<!-- output: hello -->";
         
-        // First run
         let output1 = render_markdown(input);
         
-        // Check that it doesn't contain error
         assert!(!output1.contains("Error:"), "First run should not have error: {}", output1);
         
-        // Second run  
         let output2 = render_markdown(&output1);
         
-        // The outputs should be the same - both should have comment format and not contain errors
         assert_eq!(output1, output2, "Running twice with comment format should be idempotent");
     }
 }

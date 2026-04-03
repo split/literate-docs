@@ -7,8 +7,8 @@ license = "MIT"
 repository = "https://github.com/split/literate-docs"
 
 [dependencies]
-pulldown-cmark = "0.11"
-pulldown-cmark-to-cmark = "15"
+markdown = "1.0"
+mdast_util_to_markdown = "0.0"
 
 [[bin]]
 name = "literate-docs"
