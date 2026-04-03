@@ -11,7 +11,7 @@ mod tests {
 
     #[test]
     fn test_parses_executable_blocks() {
-        let input = "```sh\necho hi\n```\n\n```python\nprint(1)\n```";
+        let input = "```sh exec\necho hi\n```\n\n```python exec\nprint(1)\n```";
         let app = TuiApp::new(input, None);
         let exec_codes: Vec<_> = app.nodes.iter()
             .filter(|n| matches!(n, RenderNode::ExecutableCode { .. }))
@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn test_parses_output_blocks() {
-        let input = "```sh\necho hi\n```";
+        let input = "```sh exec\necho hi\n```";
         let app = TuiApp::new(input, None);
         let output_blocks: Vec<_> = app.nodes.iter()
             .filter(|n| matches!(n, RenderNode::OutputBlock { .. }))
@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn test_mixed_content_parses_correctly() {
-        let input = "# Title\n\nSome text.\n\n```sh\necho hi\n```\n\nMore text.";
+        let input = "# Title\n\nSome text.\n\n```sh exec\necho hi\n```\n\nMore text.";
         let app = TuiApp::new(input, None);
         assert_eq!(app.nodes.len(), 5);
         assert!(matches!(&app.nodes[0], RenderNode::Text { kind: TextKind::Heading(1), .. }));
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_output_blocks_start_as_pending() {
-        let input = "```sh\necho hi\n```";
+        let input = "```sh exec\necho hi\n```";
         let app = TuiApp::new(input, None);
         let output_block = app.nodes.iter()
             .find(|n| matches!(n, RenderNode::OutputBlock { .. }))
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_text_between_code_and_output() {
-        let input = "```sh\necho hello\n```\n\nSome text here.\n\n```output\nhello\n```";
+        let input = "```sh exec\necho hello\n```\n\nSome text here.\n\n```output\nhello\n```";
         let app = TuiApp::new(input, None);
         assert_eq!(app.nodes.len(), 3);
         assert!(matches!(&app.nodes[0], RenderNode::ExecutableCode { .. }));
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_code_and_output_linked_by_index() {
-        let input = "```sh\necho hi\n```";
+        let input = "```sh exec\necho hi\n```";
         let app = TuiApp::new(input, None);
         let exec_code = app.nodes.iter()
             .find_map(|n| {
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_build_render_nodes_skips_output_blocks() {
-        let input = "```sh\necho hi\n```\n\n```output\nhi\n```";
+        let input = "```sh exec\necho hi\n```\n\n```output\nhi\n```";
         let ast = to_mdast(input, &ParseOptions::default()).unwrap();
         let nodes = build_render_nodes(&ast);
         let exec: Vec<_> = nodes.iter().filter(|n| matches!(n, RenderNode::ExecutableCode { .. })).collect();
@@ -288,7 +288,7 @@ mod tests {
     fn test_build_render_nodes_marks_executable_correctly() {
         let langs = ["sh", "bash", "python", "js", "node"];
         for lang in langs {
-            let input = format!("```{}\ncode\n```", lang);
+            let input = format!("```{} exec\ncode\n```", lang);
             let ast = to_mdast(&input, &ParseOptions::default()).unwrap();
             let nodes = build_render_nodes(&ast);
             assert!(
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn test_text_between_code_and_output_preserved() {
-        let input = "```sh\necho hello\n```\n\nText between.\n\n```output\nhello\n```";
+        let input = "```sh exec\necho hello\n```\n\nText between.\n\n```output\nhello\n```";
         let ast = to_mdast(input, &ParseOptions::default()).unwrap();
         let nodes = build_render_nodes(&ast);
         assert!(nodes.iter().any(|n| matches!(n, RenderNode::ExecutableCode { .. })));

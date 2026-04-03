@@ -22,10 +22,10 @@ mod tests {
 
     #[test]
     fn test_shell_block_produces_output() {
-        let input = "```sh\necho hello\n```";
+        let input = "```sh exec\necho hello\n```";
         let output = literate_docs(input);
 
-        let expected = r#"```sh
+        let expected = r#"```sh exec
 echo hello
 ```
 
@@ -53,10 +53,10 @@ hello
 
     #[test]
     fn test_multiple_code_blocks() {
-        let input = "```sh\necho one\n```\n\n```sh\necho two\n```";
+        let input = "```sh exec\necho one\n```\n\n```sh exec\necho two\n```";
         let output = literate_docs(input);
 
-        let expected = r#"```sh
+        let expected = r#"```sh exec
 echo one
 ```
 
@@ -64,7 +64,7 @@ echo one
 one
 ```
 
-```sh
+```sh exec
 echo two
 ```
 
@@ -76,14 +76,14 @@ two
 
     #[test]
     fn test_text_preserved() {
-        let input = "# Hello World\n\nSome text here.\n\n```sh\necho test\n```";
+        let input = "# Hello World\n\nSome text here.\n\n```sh exec\necho test\n```";
         let output = literate_docs(input);
 
         let expected = r#"# Hello World
 
 Some text here.
 
-```sh
+```sh exec
 echo test
 ```
 
@@ -95,7 +95,7 @@ test
 
     #[test]
     fn test_idempotency() {
-        let input = "```sh\necho hello\n```";
+        let input = "```sh exec\necho hello\n```";
         let output1 = literate_docs(input);
         let output2 = literate_docs(&output1);
 
@@ -104,7 +104,7 @@ test
 
     #[test]
     fn test_comment_output_format() {
-        let input = "```sh\necho hello\n```\n\n<!-- output: hello -->";
+        let input = "```sh exec\necho hello\n```\n\n<!-- output: hello -->";
         let output = literate_docs(input);
 
         assert!(output.contains("<!-- output: hello -->"), "Should contain comment output");
@@ -113,7 +113,7 @@ test
 
     #[test]
     fn test_comment_output_idempotency() {
-        let input = "```sh\necho hello\n```\n\n<!-- output: hello -->";
+        let input = "```sh exec\necho hello\n```\n\n<!-- output: hello -->";
 
         let output1 = literate_docs(input);
 
@@ -126,7 +126,7 @@ test
 
     #[test]
     fn test_stale_comment_output_updated() {
-        let input = "```sh\necho hello\n```\n\n<!-- output: stale_value -->";
+        let input = "```sh exec\necho hello\n```\n\n<!-- output: stale_value -->";
         let output = literate_docs(input);
 
         assert!(output.contains("<!-- output: hello -->"), "Should update stale comment to correct output: {}", output);
@@ -136,7 +136,7 @@ test
 
     #[test]
     fn test_stale_code_block_output_updated() {
-        let input = "```sh\necho hello\n```\n\n```output\nstale_value\n```";
+        let input = "```sh exec\necho hello\n```\n\n```output\nstale_value\n```";
         let output = literate_docs(input);
 
         assert!(output.contains("```output\nhello\n```"), "Should update stale code block output to correct value: {}", output);
@@ -145,7 +145,7 @@ test
 
     #[test]
     fn test_fresh_output_becomes_code_block() {
-        let input = "```sh\necho hello\n```";
+        let input = "```sh exec\necho hello\n```";
         let output = literate_docs(input);
 
         assert!(output.contains("```output\nhello\n```"), "Should create code block output for fresh execution: {}", output);
@@ -153,7 +153,7 @@ test
 
     #[test]
     fn test_idempotent_code_block_output() {
-        let input = "```sh\necho hello\n```";
+        let input = "```sh exec\necho hello\n```";
         let output1 = literate_docs(input);
         let output2 = literate_docs(&output1);
 
@@ -162,7 +162,7 @@ test
 
     #[test]
     fn test_output_separated_by_text() {
-        let input = "```sh\necho hello\n```\n\nSome text here.\n\n```output\nhello\n```";
+        let input = "```sh exec\necho hello\n```\n\nSome text here.\n\n```output\nhello\n```";
         let output = literate_docs(input);
 
         assert!(output.contains("```output\nhello\n```"), "Should preserve existing output separated by text");
@@ -171,7 +171,7 @@ test
 
     #[test]
     fn test_output_separated_by_heading() {
-        let input = "```sh\necho hello\n```\n\n## Results\n\n```output\nhello\n```";
+        let input = "```sh exec\necho hello\n```\n\n## Results\n\n```output\nhello\n```";
         let output = literate_docs(input);
 
         assert!(output.contains("## Results"), "Should preserve heading between code and output");
@@ -195,5 +195,14 @@ test
 
         assert!(!output.contains("<!-- output:"), "Should remove orphan comment output");
         assert!(output.contains("Some text"), "Should preserve surrounding text");
+    }
+
+    #[test]
+    fn test_executable_language_without_exec_keyword_unchanged() {
+        let input = "```sh\necho hello\n```";
+        let output = literate_docs(input);
+
+        assert_eq!(output, "```sh\necho hello\n```");
+        assert!(!output.contains("```output"), "Should not produce output without exec keyword");
     }
 }

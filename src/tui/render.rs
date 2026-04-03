@@ -1,5 +1,5 @@
-use markdown::mdast::{Node, Code, Text as MdText, Heading, Paragraph};
-use crate::execute_code_blocks::is_executable;
+use markdown::mdast::{Node, Text as MdText, Heading, Paragraph};
+use crate::execute_code_blocks::is_executable_code_node;
 use crate::with_output_nodes::{with_output_nodes, is_output_node};
 use crate::tui::output_box::OutputState;
 
@@ -114,19 +114,18 @@ fn collect_nodes(node: &Node, nodes: &mut Vec<RenderNode>, code_index: &mut usiz
                 });
             }
         }
-        Node::Code(Code { lang, value, .. }) => {
-            let lang_str = lang.as_deref().unwrap_or("");
-            if is_executable(lang_str) {
+        Node::Code(code) => {
+            if is_executable_code_node(node) {
                 nodes.push(RenderNode::ExecutableCode {
                     index: *code_index,
-                    lang: lang_str.to_string(),
-                    code: value.clone(),
+                    lang: code.lang.as_deref().unwrap_or("").to_string(),
+                    code: code.value.clone(),
                 });
                 *code_index += 1;
             } else {
                 nodes.push(RenderNode::CodeBlock {
-                    lang: lang_str.to_string(),
-                    code: value.clone(),
+                    lang: code.lang.as_deref().unwrap_or("").to_string(),
+                    code: code.value.clone(),
                 });
             }
         }

@@ -1,5 +1,5 @@
 use markdown::mdast::{Node, Code};
-use crate::execute_code_blocks::is_executable;
+use crate::execute_code_blocks::is_executable_code_node;
 
 pub fn is_output_node(node: &Node) -> bool {
     match node {
@@ -9,15 +9,7 @@ pub fn is_output_node(node: &Node) -> bool {
     }
 }
 
-fn is_executable_code_node(node: &Node) -> bool {
-    match node {
-        Node::Code(c) => {
-            let lang = c.lang.as_deref().unwrap_or("");
-            is_executable(lang)
-        }
-        _ => false,
-    }
-}
+
 
 fn create_empty_output_placeholder() -> Node {
     Node::Code(Code {
@@ -97,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_adds_placeholder_after_executable() {
-        let input = "```sh\necho hello\n```";
+        let input = "```sh exec\necho hello\n```";
         let ast = parse(input);
         let result = with_output_nodes(&ast);
         assert_eq!(result.children().unwrap().len(), 2);
@@ -114,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_keeps_valid_output_between_executables() {
-        let input = "```sh\necho one\n```\n\n```output\none\n```\n\n```sh\necho two\n```";
+        let input = "```sh exec\necho one\n```\n\n```output\none\n```\n\n```sh exec\necho two\n```";
         let ast = parse(input);
         let result = with_output_nodes(&ast);
         let children = result.children().unwrap();
@@ -124,7 +116,7 @@ mod tests {
 
     #[test]
     fn test_output_separated_by_text() {
-        let input = "```sh\necho hello\n```\n\nSome text here.\n\n```output\nhello\n```";
+        let input = "```sh exec\necho hello\n```\n\nSome text here.\n\n```output\nhello\n```";
         let ast = parse(input);
         let result = with_output_nodes(&ast);
         let children = result.children().unwrap();
@@ -134,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_output_separated_by_heading() {
-        let input = "```sh\necho hello\n```\n\n## Results\n\n```output\nhello\n```";
+        let input = "```sh exec\necho hello\n```\n\n## Results\n\n```output\nhello\n```";
         let ast = parse(input);
         let result = with_output_nodes(&ast);
         let children = result.children().unwrap();
@@ -144,7 +136,7 @@ mod tests {
 
     #[test]
     fn test_output_separated_by_multiple_nodes() {
-        let input = "```sh\necho hello\n```\n\nText\n\n## Heading\n\nMore text\n\n```output\nhello\n```";
+        let input = "```sh exec\necho hello\n```\n\nText\n\n## Heading\n\nMore text\n\n```output\nhello\n```";
         let ast = parse(input);
         let result = with_output_nodes(&ast);
         let children = result.children().unwrap();
@@ -164,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_placeholder_added_when_no_output_in_sight() {
-        let input = "```sh\necho hello\n```\n\nSome text after.";
+        let input = "```sh exec\necho hello\n```\n\nSome text after.";
         let ast = parse(input);
         let result = with_output_nodes(&ast);
         let children = result.children().unwrap();

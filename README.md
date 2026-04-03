@@ -4,7 +4,7 @@ A literate programming tool that parses markdown files containing code blocks, e
 
 ## Features
 
-- **Execute code blocks** - Runs code in known languages and captures output
+- **Execute code blocks** - Runs code in known languages marked with `exec`
 - **Output formats** - Supports both code block (` ```output `) and comment (`<!-- output: -->`) formats
 - **Idempotent** - Running twice produces the same output (quine-like property)
 - **Skip unknown languages** - Code blocks with unsupported languages are passed through unchanged
@@ -30,7 +30,7 @@ cargo run -- your-file.md
 
 ## Usage
 
-```sh
+```sh exec
 literate-docs --help
 ```
 
@@ -53,7 +53,7 @@ Options:
 ### Input
 
 ````markdown
-```sh
+```sh exec
 echo "Hello, World!"
 ```
 ````
@@ -61,7 +61,7 @@ echo "Hello, World!"
 ### Output
 
 ````markdown
-```sh
+```sh exec
 echo "Hello, World!"
 ```
 
@@ -75,7 +75,7 @@ Hello, World!
 If the input already contains a comment output block:
 
 ````markdown
-```sh
+```sh exec
 echo "Hello"
 ```
 
@@ -85,7 +85,7 @@ echo "Hello"
 The tool will preserve the comment format and produce:
 
 ````markdown
-```sh
+```sh exec
 echo "Hello"
 ```
 
@@ -104,7 +104,7 @@ literate-docs output.md > output.md  # Same result
 ## How It Works
 
 1. Parse markdown to extract code blocks
-2. Identify known language code blocks
+2. Identify code blocks with a supported language and the `exec` keyword
 3. Execute code and capture stdout
 4. Add output block after the code block
 5. Use format detection to match existing output style

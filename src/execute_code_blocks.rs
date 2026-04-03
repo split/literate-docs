@@ -1,7 +1,7 @@
 use std::process::Command;
 use std::fs;
 use std::time::Instant;
-use markdown::mdast::Code;
+use markdown::mdast::{Code, Node};
 
 pub const EXECUTABLE_LANGUAGES: &[&str] = &["sh", "bash", "shell", "python", "python3", "js", "javascript", "node", "ruby", "perl", "php", "go", "rust"];
 
@@ -16,7 +16,7 @@ impl TryFrom<&Code> for ExecutableCodeBlock {
 
     fn try_from(code: &Code) -> Result<Self, Self::Error> {
         let lang = code.lang.as_deref().ok_or(())?;
-        if is_executable(lang) {
+        if is_executable_code_node(&Node::Code(code.clone())) {
             Ok(ExecutableCodeBlock {
                 lang: lang.to_string(),
                 code: code.value.clone(),
@@ -24,6 +24,16 @@ impl TryFrom<&Code> for ExecutableCodeBlock {
         } else {
             Err(())
         }
+    }
+}
+
+pub fn is_executable_code_node(node: &Node) -> bool {
+    match node {
+        Node::Code(c) => {
+            let lang = c.lang.as_deref().unwrap_or("");
+            is_executable(lang) && c.meta.as_deref().map(|m| m.split_whitespace().any(|t| t == "exec")).unwrap_or(false)
+        }
+        _ => false,
     }
 }
 
