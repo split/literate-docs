@@ -159,4 +159,41 @@ test
 
         assert_eq!(output1, output2, "Running twice with code block output should be idempotent");
     }
+
+    #[test]
+    fn test_output_separated_by_text() {
+        let input = "```sh\necho hello\n```\n\nSome text here.\n\n```output\nhello\n```";
+        let output = literate_docs(input);
+
+        assert!(output.contains("```output\nhello\n```"), "Should preserve existing output separated by text");
+        assert!(!output.contains("```output\n\n```"), "Should not add placeholder when output exists");
+    }
+
+    #[test]
+    fn test_output_separated_by_heading() {
+        let input = "```sh\necho hello\n```\n\n## Results\n\n```output\nhello\n```";
+        let output = literate_docs(input);
+
+        assert!(output.contains("## Results"), "Should preserve heading between code and output");
+        assert!(output.contains("```output\nhello\n```"), "Should preserve existing output separated by heading");
+        assert!(!output.contains("```output\n\n```"), "Should not add placeholder when output exists");
+    }
+
+    #[test]
+    fn test_orphan_output_block_removed() {
+        let input = "Some text\n\n```output\nstale\n```";
+        let output = literate_docs(input);
+
+        assert!(!output.contains("```output"), "Should remove orphan output block");
+        assert!(output.contains("Some text"), "Should preserve surrounding text");
+    }
+
+    #[test]
+    fn test_orphan_comment_output_removed() {
+        let input = "Some text\n\n<!-- output: stale -->";
+        let output = literate_docs(input);
+
+        assert!(!output.contains("<!-- output:"), "Should remove orphan comment output");
+        assert!(output.contains("Some text"), "Should preserve surrounding text");
+    }
 }
