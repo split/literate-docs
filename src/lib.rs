@@ -21,12 +21,9 @@ fn detect_existing_output(events: &[Event], after_idx: usize) -> Option<OutputFo
             }
             // Check for HTML comment in HtmlBlock start
             Event::Start(Tag::HtmlBlock) => {
-                // Check the next event for the actual HTML content
-                if let Some(next_event) = events.iter().skip(after_idx + 2).next() {
-                    if let Event::Html(content) = next_event {
-                        if content.contains("<!-- output:") {
-                            return Some(OutputFormat::Comment);
-                        }
+                if let Some(Event::Html(content)) = events.get(after_idx + 2) {
+                    if content.contains("<!-- output:") {
+                        return Some(OutputFormat::Comment);
                     }
                 }
                 return None;
@@ -257,8 +254,7 @@ pub fn render_markdown(input: &str) -> String {
     let token_count = calculate_code_block_token_count(events_vec.iter())
         .unwrap_or(DEFAULT_CODE_BLOCK_TOKEN_COUNT);
     
-    let mut options = Options::default();
-    options.code_block_token_count = token_count;
+    let options = Options::<'_> { code_block_token_count: token_count, ..Default::default() };
     
     let mut output = String::new();
     cmark_with_options(events.iter(), &mut output, options).ok();
@@ -383,8 +379,6 @@ test
         // Input with existing comment output format should preserve it
         let input = "```sh\necho hello\n```\n\n<!-- output: hello -->";
         let output = render_markdown(input);
-        
-        eprintln!("DEBUG output: {:?}", output);
         
         // Should add comment output and skip existing comment
         assert!(output.contains("<!-- output: hello -->"), "Should contain comment output");
