@@ -19,8 +19,10 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use ratatui::style::Stylize;
 use ratatui::widgets::Widget;
 use markdown::{to_mdast, ParseOptions};
+use markdown::mdast::Node;
 
-use crate::execute_code_blocks::{ExecutionEvent, spawn_execution_stream};
+use crate::execute_code_blocks::{ExecutionEvent, spawn_execution_stream, is_executable_code_node};
+use crate::with_output_nodes::{is_output_node, with_output_nodes};
 use output_box::{OutputState, OutputType, OutputBox};
 use render::{RenderNode, build_render_nodes};
 use scroll::ScrollState;
@@ -49,11 +51,13 @@ enum ModalView {
 }
 
 pub struct TuiApp {
+    ast: Node,
     nodes: Vec<RenderNode>,
     scroll: ScrollState,
     output_types: HashMap<usize, OutputType>,
     running: bool,
     quit: bool,
+    aborted: bool,
     modal: ModalView,
     modal_scroll: usize,
 }
@@ -61,32 +65,41 @@ pub struct TuiApp {
 impl TuiApp {
     pub fn new(input: &str, _previous_content: Option<&str>) -> Self {
         let ast = to_mdast(input, &ParseOptions::default()).expect("Failed to parse markdown");
+        let ast = with_output_nodes(&ast);
         let nodes = build_render_nodes(&ast);
 
         Self {
+            ast,
             nodes,
             scroll: ScrollState::new(),
             output_types: HashMap::new(),
             running: false,
             quit: false,
+            aborted: false,
             modal: ModalView::None,
             modal_scroll: 0,
         }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> Option<Node> {
         if self.nodes.iter().filter(|n| matches!(n, RenderNode::OutputBlock { .. })).count() == 0 {
             println!("No executable code blocks found.");
-            return;
+            return None;
         }
 
         let result = self.run_inner().await;
 
-        // Always runs, even on panic
         TerminalGuard::cleanup();
 
         if let Err(e) = result {
             eprintln!("Error: {}", e);
+        }
+
+        if self.aborted {
+            None
+        } else {
+            let empty = Node::Root(markdown::mdast::Root { children: vec![], position: None });
+            Some(std::mem::replace(&mut self.ast, empty))
         }
     }
 
@@ -161,6 +174,9 @@ impl TuiApp {
                             }
                             _ => String::new(),
                         };
+
+                        find_and_update_output_node(&mut self.ast, idx, output);
+
                         *state = if success {
                             OutputState::Completed {
                                 output: output.clone(),
@@ -245,6 +261,7 @@ impl TuiApp {
                                 break;
                             }
                             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                self.aborted = true;
                                 self.quit = true;
                                 break;
                             }
@@ -665,6 +682,35 @@ impl TuiApp {
             }
         }
     }
+}
+
+fn find_and_update_output_node(ast: &mut Node, target_code_index: usize, output: &str) {
+    fn walk(node: &mut Node, target: usize, output: &str, code_index: &mut usize) -> bool {
+        if let Some(children) = node.children_mut() {
+            for child in children.iter_mut() {
+                if is_output_node(child) {
+                    if code_index.saturating_sub(1) == target {
+                        if let Node::Code(code) = child {
+                            code.value = output.to_string();
+                            return true;
+                        }
+                    }
+                }
+                
+                if is_executable_code_node(child) {
+                    *code_index += 1;
+                }
+                
+                if walk(child, target, output, code_index) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    
+    let mut code_index = 0;
+    walk(ast, target_code_index, output, &mut code_index);
 }
 
 async fn poll_key() -> Option<crossterm::event::KeyEvent> {

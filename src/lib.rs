@@ -7,4 +7,4 @@ pub mod literate_docs;
 pub mod tui;
 
 pub use literate_docs::literate_docs;
-pub use render_markdown::render_markdown;
+pub use render_markdown::{render_markdown, render_markdown_from_ast};

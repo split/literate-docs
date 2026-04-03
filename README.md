@@ -4,19 +4,19 @@ A literate programming tool that parses markdown files containing code blocks, e
 
 ## Features
 
-- **Execute code blocks** - Runs code in known languages marked with `exec`
-- **Output formats** - Supports both code block (` ```output `) and comment (`<!-- output: -->`) formats
-- **Idempotent** - Running twice produces the same output (quine-like property)
-- **Skip unknown languages** - Code blocks with unsupported languages are passed through unchanged
-- **Format preservation** - Output format matches any existing output block
-- **Interactive TUI** - Live scrollable document with streaming output
+* **Execute code blocks** - Runs code in known languages marked with `exec`
+* **Output formats** - Supports both code block (` ```output `) and comment (`<!-- output: -->`) formats
+* **Idempotent** - Running twice produces the same output (quine-like property)
+* **Skip unknown languages** - Code blocks with unsupported languages are passed through unchanged
+* **Format preservation** - Output format matches any existing output block
+* **Interactive TUI** - Live scrollable document with streaming output
 
 ## Supported Languages
 
-- Shell: `sh`, `bash`, `shell`
-- Python: `python`, `python3`
-- JavaScript: `js`, `javascript`, `node`
-- Ruby, Perl, PHP, Go, Rust
+* Shell: `sh`, `bash`, `shell`
+* Python: `python`, `python3`
+* JavaScript: `js`, `javascript`, `node`
+* Ruby, Perl, PHP, Go, Rust
 
 ## Installation
 
@@ -44,6 +44,7 @@ Arguments:
 
 Options:
   -i, --interactive    Interactive mode with streaming output
+  -w, --write          Write output back to the input file in place
   -h, --help           Print help
   -V, --version        Print version
 ```

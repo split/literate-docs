@@ -1,10 +1,9 @@
-use markdown::{to_mdast, ParseOptions};
 use markdown::mdast::Node;
+use markdown::{to_mdast, ParseOptions};
 use mdast_util_to_markdown::to_markdown;
 
 fn parse_markdown(input: &str) -> Node {
-    to_mdast(input, &ParseOptions::default())
-        .expect("Failed to parse markdown")
+    to_mdast(input, &ParseOptions::default()).expect("Failed to parse markdown")
 }
 
 pub fn render_markdown<F>(input: &str, transform: F) -> String
@@ -16,14 +15,20 @@ where
     let ast = parse_markdown(input);
     let transformed = transform(ast);
 
-    let mut output = to_markdown(&transformed)
-        .expect("Failed to compile markdown");
+    let mut output = to_markdown(&transformed).expect("Failed to compile markdown");
 
     if !has_trailing_newline {
         output = output.trim_end_matches('\n').to_string();
     }
 
     output
+}
+
+pub fn render_markdown_from_ast(ast: &Node) -> String {
+    to_markdown(ast)
+        .expect("Failed to compile markdown")
+        .trim_end_matches('\n')
+        .to_string()
 }
 
 #[cfg(test)]
