@@ -9,6 +9,7 @@ A literate programming tool that parses markdown files containing code blocks, e
 - **Idempotent** - Running twice produces the same output (quine-like property)
 - **Skip unknown languages** - Code blocks with unsupported languages are passed through unchanged
 - **Format preservation** - Output format matches any existing output block
+- **Interactive TUI** - Live scrollable document with streaming output
 
 ## Supported Languages
 
@@ -29,12 +30,22 @@ cargo run -- your-file.md
 
 ## Usage
 
-```bash
-# Process a markdown file
-literate-docs input.md
+```sh
+literate-docs --help
+```
 
-# Or use stdin
-cat input.md | literate-docs
+```output
+Usage: literate-docs [OPTIONS] [FILE]
+
+Literate programming tool that executes code blocks in markdown
+
+Arguments:
+  [FILE]    Input markdown file (reads from stdin if omitted)
+
+Options:
+  -i, --interactive    Interactive mode with streaming output
+  -h, --help           Print help
+  -V, --version        Print version
 ```
 
 ## Examples

@@ -9,6 +9,11 @@ repository = "https://github.com/split/literate-docs"
 [dependencies]
 markdown = "1.0"
 mdast_util_to_markdown = "0.0"
+tokio = { version = "1", features = ["full"] }
+ratatui = "0.29"
+crossterm = "0.28"
+similar = "2.6"
+futures = "0.3"
 
 [[bin]]
 name = "literate-docs"
