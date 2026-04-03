@@ -1,5 +1,5 @@
-use markdown::mdast::{Node, Code};
 use crate::execute_code_blocks::is_executable_code_node;
+use markdown::mdast::{Code, Node};
 
 pub fn is_output_node(node: &Node) -> bool {
     match node {
@@ -8,8 +8,6 @@ pub fn is_output_node(node: &Node) -> bool {
         _ => false,
     }
 }
-
-
 
 fn create_empty_output_placeholder() -> Node {
     Node::Code(Code {
@@ -21,7 +19,8 @@ fn create_empty_output_placeholder() -> Node {
 }
 
 fn find_output_before_next_executable(children: &[Node], start: usize) -> Option<usize> {
-    children[start..].iter()
+    children[start..]
+        .iter()
         .take_while(|c| !is_executable_code_node(c))
         .position(is_output_node)
         .map(|pos| start + pos)

@@ -1,7 +1,7 @@
-use markdown::mdast::{Node, Text as MdText, Heading, Paragraph};
 use crate::execute_code_blocks::is_executable_code_node;
-use crate::with_output_nodes::{with_output_nodes, is_output_node};
 use crate::tui::output_box::OutputState;
+use crate::with_output_nodes::{is_output_node, with_output_nodes};
+use markdown::mdast::{Heading, Node, Paragraph, Text as MdText};
 
 #[derive(Debug)]
 pub enum RenderNode {
@@ -44,26 +44,26 @@ impl RenderNode {
                 let total_len = prefix.len() + content.len();
                 (total_len / terminal_width).max(1)
             }
-            RenderNode::CodeBlock { code, .. } => {
-                code.lines().count() + 2
-            }
-            RenderNode::ExecutableCode { code, .. } => {
-                code.lines().count() + 2
-            }
-            RenderNode::OutputBlock { state, .. } => {
-                match state {
-                    OutputState::Pending => 3,
-                    OutputState::Running { live_lines, stderr_lines, .. } => {
-                        live_lines.len() + if stderr_lines.is_empty() { 0 } else { stderr_lines.len() + 1 } + 2
-                    }
-                    OutputState::Completed { output, .. } => {
-                        output.lines().count() + 2
-                    }
-                    OutputState::Failed { error } => {
-                        error.lines().count() + 2
-                    }
+            RenderNode::CodeBlock { code, .. } => code.lines().count() + 2,
+            RenderNode::ExecutableCode { code, .. } => code.lines().count() + 2,
+            RenderNode::OutputBlock { state, .. } => match state {
+                OutputState::Pending => 3,
+                OutputState::Running {
+                    live_lines,
+                    stderr_lines,
+                    ..
+                } => {
+                    live_lines.len()
+                        + if stderr_lines.is_empty() {
+                            0
+                        } else {
+                            stderr_lines.len() + 1
+                        }
+                        + 2
                 }
-            }
+                OutputState::Completed { output, .. } => output.lines().count() + 2,
+                OutputState::Failed { error } => error.lines().count() + 2,
+            },
         }
     }
 }
@@ -87,7 +87,9 @@ fn collect_nodes(node: &Node, nodes: &mut Vec<RenderNode>, code_index: &mut usiz
     }
 
     match node {
-        Node::Heading(Heading { children, depth, .. }) => {
+        Node::Heading(Heading {
+            children, depth, ..
+        }) => {
             let text = extract_text(children);
             if !text.is_empty() {
                 nodes.push(RenderNode::Text {

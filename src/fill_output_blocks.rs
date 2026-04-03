@@ -1,8 +1,9 @@
-use markdown::mdast::{Node, Code, Html};
+use markdown::mdast::{Code, Html, Node};
 
 pub fn fill_output_blocks(node: &Node, outputs: &mut impl Iterator<Item = String>) -> Node {
     fn fill_children(children: &[Node], outputs: &mut impl Iterator<Item = String>) -> Vec<Node> {
-        children.iter()
+        children
+            .iter()
             .map(|child| fill_output_blocks(child, outputs))
             .collect()
     }
@@ -38,7 +39,7 @@ pub fn fill_output_blocks(node: &Node, outputs: &mut impl Iterator<Item = String
                     node.to_owned()
                 }
             }
-            _ => node.to_owned()
+            _ => node.to_owned(),
         }
     }
 }

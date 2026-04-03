@@ -1,9 +1,9 @@
-use markdown::mdast::Node;
-use crate::render_markdown::render_markdown;
-use crate::extract_code_blocks::extract_executable_code_blocks;
 use crate::execute_code_blocks::execute_code_blocks;
-use crate::with_output_nodes::with_output_nodes;
+use crate::extract_code_blocks::extract_executable_code_blocks;
 use crate::fill_output_blocks::fill_output_blocks;
+use crate::render_markdown::render_markdown;
+use crate::with_output_nodes::with_output_nodes;
+use markdown::mdast::Node;
 
 fn transform_ast(ast: Node) -> Node {
     let blocks = extract_executable_code_blocks(&ast);
@@ -107,8 +107,14 @@ test
         let input = "```sh exec\necho hello\n```\n\n<!-- output: hello -->";
         let output = literate_docs(input);
 
-        assert!(output.contains("<!-- output: hello -->"), "Should contain comment output");
-        assert!(!output.contains("```output"), "Should not have code block output");
+        assert!(
+            output.contains("<!-- output: hello -->"),
+            "Should contain comment output"
+        );
+        assert!(
+            !output.contains("```output"),
+            "Should not have code block output"
+        );
     }
 
     #[test]
@@ -117,11 +123,18 @@ test
 
         let output1 = literate_docs(input);
 
-        assert!(!output1.contains("Error:"), "First run should not have error: {}", output1);
+        assert!(
+            !output1.contains("Error:"),
+            "First run should not have error: {}",
+            output1
+        );
 
         let output2 = literate_docs(&output1);
 
-        assert_eq!(output1, output2, "Running twice with comment format should be idempotent");
+        assert_eq!(
+            output1, output2,
+            "Running twice with comment format should be idempotent"
+        );
     }
 
     #[test]
@@ -129,9 +142,21 @@ test
         let input = "```sh exec\necho hello\n```\n\n<!-- output: stale_value -->";
         let output = literate_docs(input);
 
-        assert!(output.contains("<!-- output: hello -->"), "Should update stale comment to correct output: {}", output);
-        assert!(!output.contains("stale_value"), "Should not contain stale value: {}", output);
-        assert!(!output.contains("```output"), "Should not add code block output when comment exists: {}", output);
+        assert!(
+            output.contains("<!-- output: hello -->"),
+            "Should update stale comment to correct output: {}",
+            output
+        );
+        assert!(
+            !output.contains("stale_value"),
+            "Should not contain stale value: {}",
+            output
+        );
+        assert!(
+            !output.contains("```output"),
+            "Should not add code block output when comment exists: {}",
+            output
+        );
     }
 
     #[test]
@@ -139,8 +164,16 @@ test
         let input = "```sh exec\necho hello\n```\n\n```output\nstale_value\n```";
         let output = literate_docs(input);
 
-        assert!(output.contains("```output\nhello\n```"), "Should update stale code block output to correct value: {}", output);
-        assert!(!output.contains("stale_value"), "Should not contain stale value: {}", output);
+        assert!(
+            output.contains("```output\nhello\n```"),
+            "Should update stale code block output to correct value: {}",
+            output
+        );
+        assert!(
+            !output.contains("stale_value"),
+            "Should not contain stale value: {}",
+            output
+        );
     }
 
     #[test]
@@ -148,7 +181,11 @@ test
         let input = "```sh exec\necho hello\n```";
         let output = literate_docs(input);
 
-        assert!(output.contains("```output\nhello\n```"), "Should create code block output for fresh execution: {}", output);
+        assert!(
+            output.contains("```output\nhello\n```"),
+            "Should create code block output for fresh execution: {}",
+            output
+        );
     }
 
     #[test]
@@ -157,7 +194,10 @@ test
         let output1 = literate_docs(input);
         let output2 = literate_docs(&output1);
 
-        assert_eq!(output1, output2, "Running twice with code block output should be idempotent");
+        assert_eq!(
+            output1, output2,
+            "Running twice with code block output should be idempotent"
+        );
     }
 
     #[test]
@@ -165,8 +205,14 @@ test
         let input = "```sh exec\necho hello\n```\n\nSome text here.\n\n```output\nhello\n```";
         let output = literate_docs(input);
 
-        assert!(output.contains("```output\nhello\n```"), "Should preserve existing output separated by text");
-        assert!(!output.contains("```output\n\n```"), "Should not add placeholder when output exists");
+        assert!(
+            output.contains("```output\nhello\n```"),
+            "Should preserve existing output separated by text"
+        );
+        assert!(
+            !output.contains("```output\n\n```"),
+            "Should not add placeholder when output exists"
+        );
     }
 
     #[test]
@@ -174,9 +220,18 @@ test
         let input = "```sh exec\necho hello\n```\n\n## Results\n\n```output\nhello\n```";
         let output = literate_docs(input);
 
-        assert!(output.contains("## Results"), "Should preserve heading between code and output");
-        assert!(output.contains("```output\nhello\n```"), "Should preserve existing output separated by heading");
-        assert!(!output.contains("```output\n\n```"), "Should not add placeholder when output exists");
+        assert!(
+            output.contains("## Results"),
+            "Should preserve heading between code and output"
+        );
+        assert!(
+            output.contains("```output\nhello\n```"),
+            "Should preserve existing output separated by heading"
+        );
+        assert!(
+            !output.contains("```output\n\n```"),
+            "Should not add placeholder when output exists"
+        );
     }
 
     #[test]
@@ -184,8 +239,14 @@ test
         let input = "Some text\n\n```output\nstale\n```";
         let output = literate_docs(input);
 
-        assert!(!output.contains("```output"), "Should remove orphan output block");
-        assert!(output.contains("Some text"), "Should preserve surrounding text");
+        assert!(
+            !output.contains("```output"),
+            "Should remove orphan output block"
+        );
+        assert!(
+            output.contains("Some text"),
+            "Should preserve surrounding text"
+        );
     }
 
     #[test]
@@ -193,8 +254,14 @@ test
         let input = "Some text\n\n<!-- output: stale -->";
         let output = literate_docs(input);
 
-        assert!(!output.contains("<!-- output:"), "Should remove orphan comment output");
-        assert!(output.contains("Some text"), "Should preserve surrounding text");
+        assert!(
+            !output.contains("<!-- output:"),
+            "Should remove orphan comment output"
+        );
+        assert!(
+            output.contains("Some text"),
+            "Should preserve surrounding text"
+        );
     }
 
     #[test]
@@ -203,6 +270,9 @@ test
         let output = literate_docs(input);
 
         assert_eq!(output, "```sh\necho hello\n```");
-        assert!(!output.contains("```output"), "Should not produce output without exec keyword");
+        assert!(
+            !output.contains("```output"),
+            "Should not produce output without exec keyword"
+        );
     }
 }

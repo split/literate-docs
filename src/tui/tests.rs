@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use crate::tui::TuiApp;
-    use crate::tui::wrap_text;
     use crate::tui::output_box::OutputState;
-    use crate::tui::render::{RenderNode, TextKind, build_render_nodes};
+    use crate::tui::render::{build_render_nodes, RenderNode, TextKind};
     use crate::tui::scroll::ScrollState;
+    use crate::tui::wrap_text;
+    use crate::tui::TuiApp;
     use markdown::{to_mdast, ParseOptions};
 
     // ── Parsing tests ──────────────────────────────────────────────
@@ -13,7 +13,9 @@ mod tests {
     fn test_parses_executable_blocks() {
         let input = "```sh exec\necho hi\n```\n\n```python exec\nprint(1)\n```";
         let app = TuiApp::new(input, None);
-        let exec_codes: Vec<_> = app.nodes.iter()
+        let exec_codes: Vec<_> = app
+            .nodes
+            .iter()
             .filter(|n| matches!(n, RenderNode::ExecutableCode { .. }))
             .collect();
         assert_eq!(exec_codes.len(), 2);
@@ -23,7 +25,9 @@ mod tests {
     fn test_parses_output_blocks() {
         let input = "```sh exec\necho hi\n```";
         let app = TuiApp::new(input, None);
-        let output_blocks: Vec<_> = app.nodes.iter()
+        let output_blocks: Vec<_> = app
+            .nodes
+            .iter()
             .filter(|n| matches!(n, RenderNode::OutputBlock { .. }))
             .collect();
         assert_eq!(output_blocks.len(), 1);
@@ -41,8 +45,18 @@ mod tests {
     fn test_parses_headings() {
         let input = "# Title\n\n## Subtitle\n\nSome text";
         let app = TuiApp::new(input, None);
-        let headings: Vec<_> = app.nodes.iter()
-            .filter(|n| matches!(n, RenderNode::Text { kind: TextKind::Heading(_), .. }))
+        let headings: Vec<_> = app
+            .nodes
+            .iter()
+            .filter(|n| {
+                matches!(
+                    n,
+                    RenderNode::Text {
+                        kind: TextKind::Heading(_),
+                        ..
+                    }
+                )
+            })
             .collect();
         assert_eq!(headings.len(), 2);
     }
@@ -51,8 +65,18 @@ mod tests {
     fn test_parses_paragraphs() {
         let input = "First paragraph.\n\nSecond paragraph.";
         let app = TuiApp::new(input, None);
-        let paragraphs: Vec<_> = app.nodes.iter()
-            .filter(|n| matches!(n, RenderNode::Text { kind: TextKind::Paragraph, .. }))
+        let paragraphs: Vec<_> = app
+            .nodes
+            .iter()
+            .filter(|n| {
+                matches!(
+                    n,
+                    RenderNode::Text {
+                        kind: TextKind::Paragraph,
+                        ..
+                    }
+                )
+            })
             .collect();
         assert_eq!(paragraphs.len(), 2);
     }
@@ -62,18 +86,38 @@ mod tests {
         let input = "# Title\n\nSome text.\n\n```sh exec\necho hi\n```\n\nMore text.";
         let app = TuiApp::new(input, None);
         assert_eq!(app.nodes.len(), 5);
-        assert!(matches!(&app.nodes[0], RenderNode::Text { kind: TextKind::Heading(1), .. }));
-        assert!(matches!(&app.nodes[1], RenderNode::Text { kind: TextKind::Paragraph, .. }));
+        assert!(matches!(
+            &app.nodes[0],
+            RenderNode::Text {
+                kind: TextKind::Heading(1),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &app.nodes[1],
+            RenderNode::Text {
+                kind: TextKind::Paragraph,
+                ..
+            }
+        ));
         assert!(matches!(&app.nodes[2], RenderNode::ExecutableCode { .. }));
         assert!(matches!(&app.nodes[3], RenderNode::OutputBlock { .. }));
-        assert!(matches!(&app.nodes[4], RenderNode::Text { kind: TextKind::Paragraph, .. }));
+        assert!(matches!(
+            &app.nodes[4],
+            RenderNode::Text {
+                kind: TextKind::Paragraph,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn test_output_blocks_start_as_pending() {
         let input = "```sh exec\necho hi\n```";
         let app = TuiApp::new(input, None);
-        let output_block = app.nodes.iter()
+        let output_block = app
+            .nodes
+            .iter()
             .find(|n| matches!(n, RenderNode::OutputBlock { .. }))
             .expect("Expected OutputBlock");
         if let RenderNode::OutputBlock { state, .. } = output_block {
@@ -87,7 +131,13 @@ mod tests {
         let app = TuiApp::new(input, None);
         assert_eq!(app.nodes.len(), 3);
         assert!(matches!(&app.nodes[0], RenderNode::ExecutableCode { .. }));
-        assert!(matches!(&app.nodes[1], RenderNode::Text { kind: TextKind::Paragraph, .. }));
+        assert!(matches!(
+            &app.nodes[1],
+            RenderNode::Text {
+                kind: TextKind::Paragraph,
+                ..
+            }
+        ));
         assert!(matches!(&app.nodes[2], RenderNode::OutputBlock { .. }));
     }
 
@@ -95,18 +145,26 @@ mod tests {
     fn test_code_and_output_linked_by_index() {
         let input = "```sh exec\necho hi\n```";
         let app = TuiApp::new(input, None);
-        let exec_code = app.nodes.iter()
+        let exec_code = app
+            .nodes
+            .iter()
             .find_map(|n| {
                 if let RenderNode::ExecutableCode { index, .. } = n {
                     Some(*index)
-                } else { None }
+                } else {
+                    None
+                }
             })
             .expect("Expected ExecutableCode");
-        let output_block = app.nodes.iter()
+        let output_block = app
+            .nodes
+            .iter()
             .find_map(|n| {
                 if let RenderNode::OutputBlock { code_index, .. } = n {
                     Some(*code_index)
-                } else { None }
+                } else {
+                    None
+                }
             })
             .expect("Expected OutputBlock");
         assert_eq!(exec_code, output_block);
@@ -278,8 +336,14 @@ mod tests {
         let input = "```sh exec\necho hi\n```\n\n```output\nhi\n```";
         let ast = to_mdast(input, &ParseOptions::default()).unwrap();
         let nodes = build_render_nodes(&ast);
-        let exec: Vec<_> = nodes.iter().filter(|n| matches!(n, RenderNode::ExecutableCode { .. })).collect();
-        let output: Vec<_> = nodes.iter().filter(|n| matches!(n, RenderNode::OutputBlock { .. })).collect();
+        let exec: Vec<_> = nodes
+            .iter()
+            .filter(|n| matches!(n, RenderNode::ExecutableCode { .. }))
+            .collect();
+        let output: Vec<_> = nodes
+            .iter()
+            .filter(|n| matches!(n, RenderNode::OutputBlock { .. }))
+            .collect();
         assert_eq!(exec.len(), 1);
         assert_eq!(output.len(), 1);
     }
@@ -292,7 +356,9 @@ mod tests {
             let ast = to_mdast(&input, &ParseOptions::default()).unwrap();
             let nodes = build_render_nodes(&ast);
             assert!(
-                nodes.iter().any(|n| matches!(n, RenderNode::ExecutableCode { .. })),
+                nodes
+                    .iter()
+                    .any(|n| matches!(n, RenderNode::ExecutableCode { .. })),
                 "{} should be executable",
                 lang
             );
@@ -307,7 +373,9 @@ mod tests {
             let ast = to_mdast(&input, &ParseOptions::default()).unwrap();
             let nodes = build_render_nodes(&ast);
             assert!(
-                nodes.iter().any(|n| matches!(n, RenderNode::CodeBlock { .. })),
+                nodes
+                    .iter()
+                    .any(|n| matches!(n, RenderNode::CodeBlock { .. })),
                 "{} should NOT be executable",
                 lang
             );
@@ -319,8 +387,18 @@ mod tests {
         let input = "```sh exec\necho hello\n```\n\nText between.\n\n```output\nhello\n```";
         let ast = to_mdast(input, &ParseOptions::default()).unwrap();
         let nodes = build_render_nodes(&ast);
-        assert!(nodes.iter().any(|n| matches!(n, RenderNode::ExecutableCode { .. })));
-        assert!(nodes.iter().any(|n| matches!(n, RenderNode::Text { kind: TextKind::Paragraph, .. })));
-        assert!(nodes.iter().any(|n| matches!(n, RenderNode::OutputBlock { .. })));
+        assert!(nodes
+            .iter()
+            .any(|n| matches!(n, RenderNode::ExecutableCode { .. })));
+        assert!(nodes.iter().any(|n| matches!(
+            n,
+            RenderNode::Text {
+                kind: TextKind::Paragraph,
+                ..
+            }
+        )));
+        assert!(nodes
+            .iter()
+            .any(|n| matches!(n, RenderNode::OutputBlock { .. })));
     }
 }

@@ -1,9 +1,23 @@
-use std::process::Command;
-use std::fs;
-use std::time::Instant;
 use markdown::mdast::{Code, Node};
+use std::fs;
+use std::process::Command;
+use std::time::Instant;
 
-pub const EXECUTABLE_LANGUAGES: &[&str] = &["sh", "bash", "shell", "python", "python3", "js", "javascript", "node", "ruby", "perl", "php", "go", "rust"];
+pub const EXECUTABLE_LANGUAGES: &[&str] = &[
+    "sh",
+    "bash",
+    "shell",
+    "python",
+    "python3",
+    "js",
+    "javascript",
+    "node",
+    "ruby",
+    "perl",
+    "php",
+    "go",
+    "rust",
+];
 
 #[derive(Debug, Clone)]
 pub struct ExecutableCodeBlock {
@@ -31,7 +45,11 @@ pub fn is_executable_code_node(node: &Node) -> bool {
     match node {
         Node::Code(c) => {
             let lang = c.lang.as_deref().unwrap_or("");
-            is_executable(lang) && c.meta.as_deref().map(|m| m.split_whitespace().any(|t| t == "exec")).unwrap_or(false)
+            is_executable(lang)
+                && c.meta
+                    .as_deref()
+                    .map(|m| m.split_whitespace().any(|t| t == "exec"))
+                    .unwrap_or(false)
         }
         _ => false,
     }
@@ -204,7 +222,10 @@ mod tests {
     #[test]
     fn test_unknown_language_skipped() {
         let result = execute_code("mermaid", "graph TD; A-->B;");
-        assert!(result.is_empty(), "Unknown language should return empty string, not error");
+        assert!(
+            result.is_empty(),
+            "Unknown language should return empty string, not error"
+        );
     }
 
     #[test]
@@ -246,7 +267,11 @@ pub enum ExecutionEvent {
     Started,
     StdoutLine(String),
     StderrLine(String),
-    Completed { output: String, success: bool, duration: Duration },
+    Completed {
+        output: String,
+        success: bool,
+        duration: Duration,
+    },
 }
 
 pub fn spawn_execution_stream(
@@ -260,11 +285,16 @@ pub fn spawn_execution_stream(
         let _ = tx.send((index, ExecutionEvent::Started)).await;
 
         let Some(config) = get_language_command(&lang) else {
-            let _ = tx.send((index, ExecutionEvent::Completed {
-                output: String::new(),
-                success: true,
-                duration: start.elapsed(),
-            })).await;
+            let _ = tx
+                .send((
+                    index,
+                    ExecutionEvent::Completed {
+                        output: String::new(),
+                        success: true,
+                        duration: start.elapsed(),
+                    },
+                ))
+                .await;
             return;
         };
 
@@ -282,11 +312,16 @@ pub fn spawn_execution_stream(
         let child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send((index, ExecutionEvent::Completed {
-                    output: format!("Error: {}", e),
-                    success: false,
-                    duration: start.elapsed(),
-                })).await;
+                let _ = tx
+                    .send((
+                        index,
+                        ExecutionEvent::Completed {
+                            output: format!("Error: {}", e),
+                            success: false,
+                            duration: start.elapsed(),
+                        },
+                    ))
+                    .await;
                 return;
             }
         };
@@ -337,11 +372,16 @@ pub fn spawn_execution_stream(
             }
         }
 
-        let _ = tx.send((index, ExecutionEvent::Completed {
-            output: all_output.trim().to_string(),
-            success: true,
-            duration: start.elapsed(),
-        })).await;
+        let _ = tx
+            .send((
+                index,
+                ExecutionEvent::Completed {
+                    output: all_output.trim().to_string(),
+                    success: true,
+                    duration: start.elapsed(),
+                },
+            ))
+            .await;
     });
 }
 
@@ -356,11 +396,16 @@ async fn spawn_execution_stream_rust(
     let output_bin = temp_dir.join("output");
 
     if let Err(e) = fs::write(&main_rs, &code) {
-        let _ = tx.send((index, ExecutionEvent::Completed {
-            output: format!("Error: Failed to write temp file: {}", e),
-            success: false,
-            duration: start.elapsed(),
-        })).await;
+        let _ = tx
+            .send((
+                index,
+                ExecutionEvent::Completed {
+                    output: format!("Error: Failed to write temp file: {}", e),
+                    success: false,
+                    duration: start.elapsed(),
+                },
+            ))
+            .await;
         return;
     }
 
@@ -372,11 +417,16 @@ async fn spawn_execution_stream_rust(
     let mut compile_child = match compile_cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            let _ = tx.send((index, ExecutionEvent::Completed {
-                output: format!("Error: {}", e),
-                success: false,
-                duration: start.elapsed(),
-            })).await;
+            let _ = tx
+                .send((
+                    index,
+                    ExecutionEvent::Completed {
+                        output: format!("Error: {}", e),
+                        success: false,
+                        duration: start.elapsed(),
+                    },
+                ))
+                .await;
             return;
         }
     };
@@ -447,27 +497,42 @@ async fn spawn_execution_stream_rust(
                     }
                 }
 
-                let _ = tx.send((index, ExecutionEvent::Completed {
-                    output: all_output.trim().to_string(),
-                    success: true,
-                    duration: start.elapsed(),
-                })).await;
+                let _ = tx
+                    .send((
+                        index,
+                        ExecutionEvent::Completed {
+                            output: all_output.trim().to_string(),
+                            success: true,
+                            duration: start.elapsed(),
+                        },
+                    ))
+                    .await;
             } else {
-                let _ = tx.send((index, ExecutionEvent::Completed {
-                    output: "Error: Failed to run compiled binary".to_string(),
-                    success: false,
-                    duration: start.elapsed(),
-                })).await;
+                let _ = tx
+                    .send((
+                        index,
+                        ExecutionEvent::Completed {
+                            output: "Error: Failed to run compiled binary".to_string(),
+                            success: false,
+                            duration: start.elapsed(),
+                        },
+                    ))
+                    .await;
             }
 
             let _ = fs::remove_file(&output_bin);
         }
         _ => {
-            let _ = tx.send((index, ExecutionEvent::Completed {
-                output: format!("Error compiling: {}", compile_output.trim()),
-                success: false,
-                duration: start.elapsed(),
-            })).await;
+            let _ = tx
+                .send((
+                    index,
+                    ExecutionEvent::Completed {
+                        output: format!("Error compiling: {}", compile_output.trim()),
+                        success: false,
+                        duration: start.elapsed(),
+                    },
+                ))
+                .await;
         }
     }
 }

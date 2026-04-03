@@ -1,10 +1,10 @@
-use std::collections::VecDeque;
-use std::time::{Duration, Instant};
 use ratatui::layout::Rect;
-use ratatui::widgets::{Block, Borders, Widget};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Widget};
 use similar::{ChangeTag, TextDiff};
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputType {
@@ -69,7 +69,9 @@ impl OutputState {
         match self {
             OutputState::Completed { output, .. } => output.clone(),
             OutputState::Failed { error } => error.clone(),
-            OutputState::Running { live_lines, .. } => live_lines.iter().cloned().collect::<Vec<_>>().join("\n"),
+            OutputState::Running { live_lines, .. } => {
+                live_lines.iter().cloned().collect::<Vec<_>>().join("\n")
+            }
             OutputState::Pending => String::new(),
         }
     }
@@ -84,7 +86,11 @@ impl OutputState {
                 }
             }
             OutputState::Failed { error } => error.clone(),
-            OutputState::Running { live_lines, stderr_lines, .. } => {
+            OutputState::Running {
+                live_lines,
+                stderr_lines,
+                ..
+            } => {
                 let mut lines: Vec<String> = live_lines.iter().cloned().collect();
                 if !stderr_lines.is_empty() {
                     lines.push(String::new());
@@ -118,7 +124,9 @@ impl ScrollableBox {
             if width >= 2 {
                 let line = "└".to_string() + &"─".repeat(width.saturating_sub(2)) + "┘";
                 for (j, ch) in line.chars().enumerate() {
-                    if let Some(cell) = buf.cell_mut(ratatui::layout::Position::new(area.x + j as u16, area.y)) {
+                    if let Some(cell) =
+                        buf.cell_mut(ratatui::layout::Position::new(area.x + j as u16, area.y))
+                    {
                         cell.set_char(ch).set_fg(style.fg.unwrap_or(Color::Reset));
                     }
                 }
@@ -177,13 +185,14 @@ impl OutputBox<'_> {
                         Style::default().fg(Color::Yellow),
                     )
                 } else {
-                    Span::styled(
-                        format!("▶ {}ms", ms),
-                        Style::default().fg(Color::Yellow),
-                    )
+                    Span::styled(format!("▶ {}ms", ms), Style::default().fg(Color::Yellow))
                 }
             }
-            OutputState::Completed { previous_output, duration, .. } => {
+            OutputState::Completed {
+                previous_output,
+                duration,
+                ..
+            } => {
                 if previous_output.is_some() {
                     Span::styled(
                         format!("~ changed {:.1}s", duration.as_secs_f64()),
@@ -196,21 +205,31 @@ impl OutputBox<'_> {
                     )
                 }
             }
-            OutputState::Failed { .. } => {
-                Span::styled("✗ error", Style::default().fg(Color::Red))
-            }
+            OutputState::Failed { .. } => Span::styled("✗ error", Style::default().fg(Color::Red)),
         }
     }
 
     fn render_lines(&self, max_width: usize) -> Vec<Line<'static>> {
         match self.state {
             OutputState::Pending => {
-                vec![Line::from(Span::styled("  (waiting...)", Style::default().fg(Color::DarkGray)))]
+                vec![Line::from(Span::styled(
+                    "  (waiting...)",
+                    Style::default().fg(Color::DarkGray),
+                ))]
             }
-            OutputState::Running { live_lines, stderr_lines, .. } => {
+            OutputState::Running {
+                live_lines,
+                stderr_lines,
+                ..
+            } => {
                 let mut lines: Vec<Line> = live_lines
                     .iter()
-                    .map(|l| Line::from(Span::raw(format!("  {}", truncate(l, max_width.saturating_sub(2))))))
+                    .map(|l| {
+                        Line::from(Span::raw(format!(
+                            "  {}",
+                            truncate(l, max_width.saturating_sub(2))
+                        )))
+                    })
                     .collect();
 
                 if !stderr_lines.is_empty() {
@@ -224,30 +243,41 @@ impl OutputBox<'_> {
                 }
 
                 if lines.is_empty() {
-                    lines.push(Line::from(Span::styled("  ⠋ running...", Style::default().fg(Color::DarkGray))));
+                    lines.push(Line::from(Span::styled(
+                        "  ⠋ running...",
+                        Style::default().fg(Color::DarkGray),
+                    )));
                 }
 
                 lines
             }
-            OutputState::Completed { output, previous_output, .. } => {
-                if let (Some(prev), false) = (previous_output, self.output_type == OutputType::Comment) {
+            OutputState::Completed {
+                output,
+                previous_output,
+                ..
+            } => {
+                if let (Some(prev), false) =
+                    (previous_output, self.output_type == OutputType::Comment)
+                {
                     self.render_diff_lines(prev, output, max_width)
                 } else {
                     output
                         .lines()
-                        .map(|l| Line::from(format!("  {}", truncate(l, max_width.saturating_sub(2)))))
+                        .map(|l| {
+                            Line::from(format!("  {}", truncate(l, max_width.saturating_sub(2))))
+                        })
                         .collect()
                 }
             }
-            OutputState::Failed { error } => {
-                error
-                    .lines()
-                    .map(|l| Line::from(Span::styled(
+            OutputState::Failed { error } => error
+                .lines()
+                .map(|l| {
+                    Line::from(Span::styled(
                         format!("  {}", truncate(l, max_width.saturating_sub(2))),
                         Style::default().fg(Color::Red),
-                    )))
-                    .collect()
-            }
+                    ))
+                })
+                .collect(),
         }
     }
 
@@ -264,14 +294,21 @@ impl OutputBox<'_> {
             let text = change.value().trim_end_matches('\n');
             if !text.is_empty() || change.tag() != ChangeTag::Equal {
                 lines.push(Line::from(Span::styled(
-                    format!("  {} {}", prefix, truncate(text, max_width.saturating_sub(4))),
+                    format!(
+                        "  {} {}",
+                        prefix,
+                        truncate(text, max_width.saturating_sub(4))
+                    ),
                     style,
                 )));
             }
         }
 
         if lines.is_empty() {
-            lines.push(Line::from(Span::styled("  (no changes)", Style::default().fg(Color::DarkGray))));
+            lines.push(Line::from(Span::styled(
+                "  (no changes)",
+                Style::default().fg(Color::DarkGray),
+            )));
         }
 
         lines
@@ -295,7 +332,8 @@ impl Widget for OutputBox<'_> {
             content,
             is_focused: self.is_focused,
             skip_lines: self.skip_lines,
-        }.render(area, buf);
+        }
+        .render(area, buf);
     }
 }
 

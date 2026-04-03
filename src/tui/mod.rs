@@ -1,30 +1,30 @@
-pub mod render;
 pub mod output_box;
+pub mod render;
 pub mod scroll;
 
 #[cfg(test)]
 mod tests;
 
+use crossterm::{
+    cursor::Show,
+    event::{KeyCode, KeyEventKind, KeyModifiers},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use markdown::mdast::Node;
+use markdown::{to_mdast, ParseOptions};
+use ratatui::style::Stylize;
+use ratatui::widgets::Widget;
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::collections::HashMap;
 use std::io::{self, stdout};
 use std::time::Instant;
 use tokio::sync::mpsc;
-use crossterm::{
-    event::{KeyCode, KeyEventKind, KeyModifiers},
-    execute,
-    terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    cursor::Show,
-};
-use ratatui::{backend::CrosstermBackend, Terminal};
-use ratatui::style::Stylize;
-use ratatui::widgets::Widget;
-use markdown::{to_mdast, ParseOptions};
-use markdown::mdast::Node;
 
-use crate::execute_code_blocks::{ExecutionEvent, spawn_execution_stream, is_executable_code_node};
+use crate::execute_code_blocks::{is_executable_code_node, spawn_execution_stream, ExecutionEvent};
 use crate::with_output_nodes::{is_output_node, with_output_nodes};
-use output_box::{OutputState, OutputType, OutputBox};
-use render::{RenderNode, build_render_nodes};
+use output_box::{OutputBox, OutputState, OutputType};
+use render::{build_render_nodes, RenderNode};
 use scroll::ScrollState;
 
 struct TerminalGuard;
@@ -82,7 +82,13 @@ impl TuiApp {
     }
 
     pub async fn run(&mut self) -> Option<Node> {
-        if self.nodes.iter().filter(|n| matches!(n, RenderNode::OutputBlock { .. })).count() == 0 {
+        if self
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, RenderNode::OutputBlock { .. }))
+            .count()
+            == 0
+        {
             println!("No executable code blocks found.");
             return None;
         }
@@ -98,7 +104,10 @@ impl TuiApp {
         if self.aborted {
             None
         } else {
-            let empty = Node::Root(markdown::mdast::Root { children: vec![], position: None });
+            let empty = Node::Root(markdown::mdast::Root {
+                children: vec![],
+                position: None,
+            });
             Some(std::mem::replace(&mut self.ast, empty))
         }
     }
@@ -122,18 +131,22 @@ impl TuiApp {
     fn spawn_execution(&mut self) -> mpsc::Receiver<(usize, ExecutionEvent)> {
         let (tx, rx) = mpsc::channel::<(usize, ExecutionEvent)>(64);
 
-        let exec_codes: Vec<(usize, String, String)> = self.nodes.iter()
+        let exec_codes: Vec<(usize, String, String)> = self
+            .nodes
+            .iter()
             .filter_map(|n| {
                 if let RenderNode::ExecutableCode { index, lang, code } = n {
                     Some((*index, lang.clone(), code.clone()))
-                } else { None }
+                } else {
+                    None
+                }
             })
             .collect();
 
         for (idx, lang, code) in &exec_codes {
-            if let Some(node) = self.nodes.iter_mut().find(|n| {
-                matches!(n, RenderNode::OutputBlock { code_index, .. } if *code_index == *idx)
-            }) {
+            if let Some(node) = self.nodes.iter_mut().find(
+                |n| matches!(n, RenderNode::OutputBlock { code_index, .. } if *code_index == *idx),
+            ) {
                 if let RenderNode::OutputBlock { state, .. } = node {
                     *state = OutputState::Running {
                         live_lines: Default::default(),
@@ -167,7 +180,11 @@ impl TuiApp {
                             stderr_lines.push_back(line.clone());
                         }
                     }
-                    ExecutionEvent::Completed { ref output, success, duration } => {
+                    ExecutionEvent::Completed {
+                        ref output,
+                        success,
+                        duration,
+                    } => {
                         let stderr = match &*state {
                             OutputState::Running { stderr_lines, .. } => {
                                 stderr_lines.iter().cloned().collect::<Vec<_>>().join("\n")
@@ -185,7 +202,9 @@ impl TuiApp {
                                 stderr,
                             }
                         } else {
-                            OutputState::Failed { error: output.clone() }
+                            OutputState::Failed {
+                                error: output.clone(),
+                            }
                         };
                     }
                 }
@@ -194,7 +213,8 @@ impl TuiApp {
     }
 
     fn output_block_indices(&self) -> Vec<usize> {
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .enumerate()
             .filter(|(_, n)| matches!(n, RenderNode::OutputBlock { .. }))
             .map(|(i, _)| i)
@@ -350,8 +370,15 @@ impl TuiApp {
                 continue;
             }
 
-            let skip = if offset > current_line { offset - current_line } else { 0 };
-            let remaining_height = area.height.saturating_sub((current_line.saturating_sub(offset)) as u16) as usize;
+            let skip = if offset > current_line {
+                offset - current_line
+            } else {
+                0
+            };
+            let remaining_height = area
+                .height
+                .saturating_sub((current_line.saturating_sub(offset)) as u16)
+                as usize;
 
             if remaining_height == 0 {
                 current_line += node_lines;
@@ -370,9 +397,7 @@ impl TuiApp {
                         _ => String::new(),
                     };
                     let style = match kind {
-                        render::TextKind::Heading(_) => {
-                            ratatui::style::Style::default().bold()
-                        }
+                        render::TextKind::Heading(_) => ratatui::style::Style::default().bold(),
                         _ => ratatui::style::Style::default(),
                     };
 
@@ -381,7 +406,10 @@ impl TuiApp {
                         if i - skip >= remaining_height {
                             break;
                         }
-                        let y = current_line.saturating_sub(offset).saturating_add(i).saturating_sub(skip) as u16;
+                        let y = current_line
+                            .saturating_sub(offset)
+                            .saturating_add(i)
+                            .saturating_sub(skip) as u16;
                         if y < area.height {
                             frame.render_widget(
                                 ratatui::widgets::Paragraph::new(line.clone()).style(style),
@@ -397,11 +425,16 @@ impl TuiApp {
                         if i - skip >= remaining_height {
                             break;
                         }
-                        let y = current_line.saturating_sub(offset).saturating_add(i).saturating_sub(skip) as u16;
+                        let y = current_line
+                            .saturating_sub(offset)
+                            .saturating_add(i)
+                            .saturating_sub(skip) as u16;
                         if y < area.height {
                             frame.render_widget(
-                                ratatui::widgets::Paragraph::new(line.to_string())
-                                    .style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray)),
+                                ratatui::widgets::Paragraph::new(line.to_string()).style(
+                                    ratatui::style::Style::default()
+                                        .fg(ratatui::style::Color::DarkGray),
+                                ),
                                 ratatui::layout::Rect::new(0, y, area.width, 1),
                             );
                         }
@@ -412,10 +445,14 @@ impl TuiApp {
                     let status = self.get_code_status(*index);
 
                     let header = format!(" {} │ {} ", lang, status);
-                    let code_lines: Vec<_> = code.lines()
-                        .map(|l| ratatui::text::Line::from(
-                            ratatui::text::Span::styled(l.to_string(), ratatui::style::Style::default().fg(ratatui::style::Color::Cyan))
-                        ))
+                    let code_lines: Vec<_> = code
+                        .lines()
+                        .map(|l| {
+                            ratatui::text::Line::from(ratatui::text::Span::styled(
+                                l.to_string(),
+                                ratatui::style::Style::default().fg(ratatui::style::Color::Cyan),
+                            ))
+                        })
                         .collect();
                     let visible_lines = node_lines.saturating_sub(skip);
                     let box_height = visible_lines.min(remaining_height) as u16;
@@ -427,16 +464,24 @@ impl TuiApp {
                                 content: code_lines,
                                 is_focused,
                                 skip_lines: skip,
-                            }.render(
+                            }
+                            .render(
                                 ratatui::layout::Rect::new(0, y, area.width, box_height),
                                 frame.buffer_mut(),
                             );
                         }
                     }
                 }
-                RenderNode::OutputBlock { code_index: _, state } => {
+                RenderNode::OutputBlock {
+                    code_index: _,
+                    state,
+                } => {
                     let is_focused = self.scroll.focused_index == output_box_index;
-                    let output_type = self.output_types.get(&node_idx).copied().unwrap_or(OutputType::Block);
+                    let output_type = self
+                        .output_types
+                        .get(&node_idx)
+                        .copied()
+                        .unwrap_or(OutputType::Block);
 
                     let visible_lines = node_lines.saturating_sub(skip);
                     let box_height = visible_lines.min(remaining_height) as u16;
@@ -465,11 +510,28 @@ impl TuiApp {
         }
 
         let status_bar = if self.running {
-            let completed = self.nodes.iter().filter(|n| {
-                matches!(n, RenderNode::OutputBlock { state: OutputState::Completed { .. } | OutputState::Failed { .. }, .. })
-            }).count();
-            let total = self.nodes.iter().filter(|n| matches!(n, RenderNode::OutputBlock { .. })).count();
-            format!(" [{}/{}] running... | ↑/↓:scroll  n/p:focus  t:type  m:modal  l:logs  q:quit", completed, total)
+            let completed = self
+                .nodes
+                .iter()
+                .filter(|n| {
+                    matches!(
+                        n,
+                        RenderNode::OutputBlock {
+                            state: OutputState::Completed { .. } | OutputState::Failed { .. },
+                            ..
+                        }
+                    )
+                })
+                .count();
+            let total = self
+                .nodes
+                .iter()
+                .filter(|n| matches!(n, RenderNode::OutputBlock { .. }))
+                .count();
+            format!(
+                " [{}/{}] running... | ↑/↓:scroll  n/p:focus  t:type  m:modal  l:logs  q:quit",
+                completed, total
+            )
         } else {
             " done | ↑/↓:scroll  n/p:focus  t:type  m:modal  l:logs  q:quit".to_string()
         };
@@ -482,9 +544,9 @@ impl TuiApp {
     }
 
     fn get_code_status(&self, index: usize) -> String {
-        if let Some(RenderNode::OutputBlock { state, .. }) = self.nodes.iter()
-            .find(|n| matches!(n, RenderNode::OutputBlock { code_index, .. } if *code_index == index))
-        {
+        if let Some(RenderNode::OutputBlock { state, .. }) = self.nodes.iter().find(
+            |n| matches!(n, RenderNode::OutputBlock { code_index, .. } if *code_index == index),
+        ) {
             match state {
                 OutputState::Running { start, .. } => {
                     let elapsed = start.elapsed();
@@ -508,75 +570,111 @@ impl TuiApp {
     fn render_modal(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
         let (title, sections) = match self.modal {
             ModalView::Output(code_idx) => {
-                let state = self.nodes.iter()
-                    .find_map(|n| {
-                        if let RenderNode::OutputBlock { code_index, state } = n {
-                            if *code_index == code_idx { Some(state) } else { None }
-                        } else { None }
-                    });
+                let state = self.nodes.iter().find_map(|n| {
+                    if let RenderNode::OutputBlock { code_index, state } = n {
+                        if *code_index == code_idx {
+                            Some(state)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
                 if let Some(state) = state {
                     let text = state.all_output();
                     if text.is_empty() {
-                        ("Output", vec![("output", vec!["(no output yet)".to_string()])])
+                        (
+                            "Output",
+                            vec![("output", vec!["(no output yet)".to_string()])],
+                        )
                     } else {
-                        ("Output", vec![("output", text.lines().map(|l| l.to_string()).collect())])
+                        (
+                            "Output",
+                            vec![("output", text.lines().map(|l| l.to_string()).collect())],
+                        )
                     }
                 } else {
                     ("Output", vec![("output", vec!["(not found)".to_string()])])
                 }
             }
             ModalView::Logs(code_idx) => {
-                let state = self.nodes.iter()
-                    .find_map(|n| {
-                        if let RenderNode::OutputBlock { code_index, state } = n {
-                            if *code_index == code_idx { Some(state) } else { None }
-                        } else { None }
-                    });
+                let state = self.nodes.iter().find_map(|n| {
+                    if let RenderNode::OutputBlock { code_index, state } = n {
+                        if *code_index == code_idx {
+                            Some(state)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
                 if let Some(state) = state {
                     match state {
-                        OutputState::Running { live_lines, stderr_lines, start } => {
+                        OutputState::Running {
+                            live_lines,
+                            stderr_lines,
+                            start,
+                        } => {
                             let elapsed = start.elapsed();
-                            let mut sections = vec![
-                                ("logs", vec![
+                            let mut sections = vec![(
+                                "logs",
+                                vec![
                                     format!("running for {:.1}s", elapsed.as_secs_f64()),
                                     String::new(),
-                                ]),
-                            ];
+                                ],
+                            )];
                             sections[0].1.extend(live_lines.iter().cloned());
                             if !stderr_lines.is_empty() {
-                                sections.push(("stderr", vec![String::new(), "--- stderr ---".to_string()]));
+                                sections.push((
+                                    "stderr",
+                                    vec![String::new(), "--- stderr ---".to_string()],
+                                ));
                                 sections[1].1.extend(stderr_lines.iter().cloned());
                             }
                             ("Build Logs", sections)
                         }
-                        OutputState::Completed { output, duration, stderr, .. } => {
-                            let mut sections = vec![
-                                ("output", vec![
+                        OutputState::Completed {
+                            output,
+                            duration,
+                            stderr,
+                            ..
+                        } => {
+                            let mut sections = vec![(
+                                "output",
+                                vec![
                                     format!("completed in {:.1}s", duration.as_secs_f64()),
                                     String::new(),
-                                ]),
-                            ];
+                                ],
+                            )];
                             sections[0].1.extend(output.lines().map(|l| l.to_string()));
                             if !stderr.is_empty() {
-                                sections.push(("stderr", vec![String::new(), "--- stderr ---".to_string()]));
+                                sections.push((
+                                    "stderr",
+                                    vec![String::new(), "--- stderr ---".to_string()],
+                                ));
                                 sections[1].1.extend(stderr.lines().map(|l| l.to_string()));
                             }
                             ("Output", sections)
                         }
                         OutputState::Failed { error } => {
-                            let sections = vec![
-                                ("error", vec!["failed".to_string(), String::new()]),
-                            ];
+                            let sections =
+                                vec![("error", vec!["failed".to_string(), String::new()])];
                             let mut sections = sections;
                             sections[0].1.extend(error.lines().map(|l| l.to_string()));
                             ("Error", sections)
                         }
-                        OutputState::Pending => {
-                            ("Build Logs", vec![("logs", vec!["(waiting...)".to_string()])])
-                        }
+                        OutputState::Pending => (
+                            "Build Logs",
+                            vec![("logs", vec!["(waiting...)".to_string()])],
+                        ),
                     }
                 } else {
-                    ("Build Logs", vec![("logs", vec!["(not found)".to_string()])])
+                    (
+                        "Build Logs",
+                        vec![("logs", vec!["(not found)".to_string()])],
+                    )
                 }
             }
             ModalView::None => unreachable!(),
@@ -605,7 +703,10 @@ impl TuiApp {
 
         let mut all_lines: Vec<(String, String)> = Vec::new();
         for (section_name, lines) in &sections {
-            all_lines.push((section_name.to_string(), format!("─── {} ───", section_name)));
+            all_lines.push((
+                section_name.to_string(),
+                format!("─── {} ───", section_name),
+            ));
             for line in lines {
                 all_lines.push((section_name.to_string(), line.clone()));
             }
@@ -629,7 +730,10 @@ impl TuiApp {
             for (j, ch) in truncated.chars().enumerate() {
                 let x = inner.x + j as u16;
                 if x < inner.right() {
-                    if let Some(cell) = frame.buffer_mut().cell_mut(ratatui::layout::Position::new(x, y)) {
+                    if let Some(cell) = frame
+                        .buffer_mut()
+                        .cell_mut(ratatui::layout::Position::new(x, y))
+                    {
                         cell.set_char(ch);
                     }
                 }
@@ -643,7 +747,8 @@ impl TuiApp {
     }
 
     fn total_rendered_lines(&self, terminal_width: usize) -> usize {
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .map(|n| self.node_rendered_lines(n, terminal_width))
             .sum::<usize>()
             .max(1)
@@ -659,27 +764,26 @@ impl TuiApp {
                 let wrapped = wrap_text(&format!("{}{}", prefix, content), terminal_width);
                 wrapped.len().max(1) + 1
             }
-            RenderNode::CodeBlock { code, .. } => {
-                code.lines().count() + 2
-            }
-            RenderNode::ExecutableCode { code, .. } => {
-                code.lines().count() + 2
-            }
-            RenderNode::OutputBlock { state, .. } => {
-                match state {
-                    OutputState::Pending => 3,
-                    OutputState::Running { live_lines, stderr_lines, .. } => {
-                        let output_lines = live_lines.len() + if stderr_lines.is_empty() { 0 } else { stderr_lines.len() + 1 };
-                        (output_lines + 2).max(3)
-                    }
-                    OutputState::Completed { output, .. } => {
-                        (output.lines().count() + 2).max(3)
-                    }
-                    OutputState::Failed { error } => {
-                        (error.lines().count() + 2).max(3)
-                    }
+            RenderNode::CodeBlock { code, .. } => code.lines().count() + 2,
+            RenderNode::ExecutableCode { code, .. } => code.lines().count() + 2,
+            RenderNode::OutputBlock { state, .. } => match state {
+                OutputState::Pending => 3,
+                OutputState::Running {
+                    live_lines,
+                    stderr_lines,
+                    ..
+                } => {
+                    let output_lines = live_lines.len()
+                        + if stderr_lines.is_empty() {
+                            0
+                        } else {
+                            stderr_lines.len() + 1
+                        };
+                    (output_lines + 2).max(3)
                 }
-            }
+                OutputState::Completed { output, .. } => (output.lines().count() + 2).max(3),
+                OutputState::Failed { error } => (error.lines().count() + 2).max(3),
+            },
         }
     }
 }
@@ -696,11 +800,11 @@ fn find_and_update_output_node(ast: &mut Node, target_code_index: usize, output:
                         }
                     }
                 }
-                
+
                 if is_executable_code_node(child) {
                     *code_index += 1;
                 }
-                
+
                 if walk(child, target, output, code_index) {
                     return true;
                 }
@@ -708,7 +812,7 @@ fn find_and_update_output_node(ast: &mut Node, target_code_index: usize, output:
         }
         false
     }
-    
+
     let mut code_index = 0;
     walk(ast, target_code_index, output, &mut code_index);
 }

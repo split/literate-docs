@@ -26,7 +26,11 @@ fn parse_args() -> Config {
         }
     }
 
-    Config { interactive, write, file }
+    Config {
+        interactive,
+        write,
+        file,
+    }
 }
 
 fn print_help() {
@@ -51,7 +55,9 @@ fn read_input(file: Option<&str>) -> String {
         fs::read_to_string(path).expect("Failed to read file")
     } else {
         let mut buffer = String::new();
-        io::stdin().read_to_string(&mut buffer).expect("Failed to read stdin");
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .expect("Failed to read stdin");
         buffer
     }
 }
@@ -158,7 +164,11 @@ mod tests {
             }
         }
 
-        Config { interactive, write, file }
+        Config {
+            interactive,
+            write,
+            file,
+        }
     }
 }
 
