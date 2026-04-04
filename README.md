@@ -5,6 +5,7 @@ A literate programming tool that parses markdown files containing code blocks, e
 ## Features
 
 * **Execute code blocks** - Runs code in known languages marked with `exec`
+* **Hidden code blocks** - Use HTML comments (`<!-- sh exec: code -->`) to hide source in markdown renderers
 * **Output formats** - Supports both code block (` ```output `) and comment (`<!-- output: -->`) formats
 * **Idempotent** - Running twice produces the same output (quine-like property)
 * **Skip unknown languages** - Code blocks with unsupported languages are passed through unchanged
@@ -75,9 +76,36 @@ Hello, World!
 
 If the input already contains a comment output block:
 
-````markdown
 ```sh exec
 echo "Hello"
+```
+
+<!-- output: Hello -->
+
+The tool will preserve the comment format and produce:
+
+```sh exec
+echo "Hello"
+```
+
+<!-- output: Hello -->
+
+### Hidden Code Blocks
+
+You can hide the source code in markdown renderers using HTML comments:
+
+```markdown
+<!-- sh exec: echo "Hidden in renderers" -->
+```
+
+The source code is hidden (invisible in most markdown renderers), but the output is shown:
+
+```markdown
+<!-- sh exec: echo "Hidden in renderers" -->
+
+```output
+Hidden in renderers
+```
 ```
 
 <!-- output: Hello -->

@@ -6,14 +6,10 @@ pub fn extract_executable_code_blocks(node: &Node) -> Vec<ExecutableCodeBlock> {
         Some(children) => children
             .iter()
             .flat_map(|child| {
-                if let Node::Code(code) = child {
-                    ExecutableCodeBlock::try_from(code)
-                        .ok()
-                        .into_iter()
-                        .collect()
-                } else {
-                    extract_executable_code_blocks(child)
-                }
+                ExecutableCodeBlock::try_from(child)
+                    .ok()
+                    .into_iter()
+                    .chain(extract_executable_code_blocks(child))
             })
             .collect(),
         None => Vec::new(),

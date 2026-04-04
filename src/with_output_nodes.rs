@@ -1,4 +1,4 @@
-use crate::execute_code_blocks::is_executable_code_node;
+use crate::execute_code_blocks::is_executable_node;
 use markdown::mdast::{Code, Node};
 
 pub fn is_output_node(node: &Node) -> bool {
@@ -9,6 +9,14 @@ pub fn is_output_node(node: &Node) -> bool {
     }
 }
 
+fn find_output_before_next_executable(children: &[Node], start: usize) -> Option<usize> {
+    children[start..]
+        .iter()
+        .take_while(|c| !is_executable_node(c))
+        .position(is_output_node)
+        .map(|pos| start + pos)
+}
+
 fn create_empty_output_placeholder() -> Node {
     Node::Code(Code {
         value: String::new(),
@@ -16,14 +24,6 @@ fn create_empty_output_placeholder() -> Node {
         meta: None,
         position: None,
     })
-}
-
-fn find_output_before_next_executable(children: &[Node], start: usize) -> Option<usize> {
-    children[start..]
-        .iter()
-        .take_while(|c| !is_executable_code_node(c))
-        .position(is_output_node)
-        .map(|pos| start + pos)
 }
 
 pub fn with_output_nodes(node: &Node) -> Node {
@@ -52,10 +52,10 @@ pub fn with_output_nodes(node: &Node) -> Node {
                 continue;
             }
 
-            let placed = process_node(child);
-            result.push(placed);
+            if is_executable_node(child) {
+                let placed = process_node(child);
+                result.push(placed);
 
-            if is_executable_code_node(child) {
                 if let Some(output_idx) = find_output_before_next_executable(children, i + 1) {
                     for j in (i + 1)..output_idx {
                         result.push(process_node(&children[j]));
@@ -66,9 +66,12 @@ pub fn with_output_nodes(node: &Node) -> Node {
                     result.push(create_empty_output_placeholder());
                     i += 1;
                 }
-            } else {
-                i += 1;
+                continue;
             }
+
+            let placed = process_node(child);
+            result.push(placed);
+            i += 1;
         }
 
         result
