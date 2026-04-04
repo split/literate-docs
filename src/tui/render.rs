@@ -1,6 +1,6 @@
 use crate::execute_code_blocks::is_executable_code_node;
 use crate::tui::output_box::OutputState;
-use crate::with_output_nodes::{is_output_node, with_output_nodes};
+use crate::with_output_nodes::is_output_node;
 use markdown::mdast::{Heading, Node, Paragraph, Text as MdText};
 
 #[derive(Debug)]
@@ -12,6 +12,7 @@ pub enum RenderNode {
     CodeBlock {
         lang: String,
         code: String,
+        executable: bool,
     },
     ExecutableCode {
         index: usize,
@@ -69,10 +70,9 @@ impl RenderNode {
 }
 
 pub fn build_render_nodes(ast: &Node) -> Vec<RenderNode> {
-    let placed = with_output_nodes(ast);
     let mut nodes = Vec::new();
     let mut code_index = 0;
-    collect_nodes(&placed, &mut nodes, &mut code_index);
+    collect_nodes(ast, &mut nodes, &mut code_index);
     nodes
 }
 
@@ -108,7 +108,8 @@ fn collect_nodes(node: &Node, nodes: &mut Vec<RenderNode>, code_index: &mut usiz
             }
         }
         Node::Code(code) => {
-            if is_executable_code_node(node) {
+            let is_executable = is_executable_code_node(node);
+            if is_executable {
                 nodes.push(RenderNode::ExecutableCode {
                     index: *code_index,
                     lang: code.lang.as_deref().unwrap_or("").to_string(),
@@ -119,6 +120,7 @@ fn collect_nodes(node: &Node, nodes: &mut Vec<RenderNode>, code_index: &mut usiz
                 nodes.push(RenderNode::CodeBlock {
                     lang: code.lang.as_deref().unwrap_or("").to_string(),
                     code: code.value.clone(),
+                    executable: false,
                 });
             }
         }

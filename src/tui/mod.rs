@@ -22,7 +22,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use crate::execute_code_blocks::{is_executable_code_node, spawn_execution_stream, ExecutionEvent};
-use crate::with_output_nodes::{is_output_node, with_output_nodes};
+use crate::with_output_nodes::is_output_node;
 use output_box::{OutputBox, OutputState, OutputType};
 use render::{build_render_nodes, RenderNode};
 use scroll::ScrollState;
@@ -68,15 +68,15 @@ impl TuiApp {
         use crate::extract_code_blocks::extract_executable_code_blocks;
         use crate::fill_output_blocks::fill_output_blocks;
         use crate::with_output_nodes::with_output_nodes;
-        
+
         let ast = to_mdast(input, &ParseOptions::default()).expect("Failed to parse markdown");
-        
+
         // Same pipeline as literate_docs
         let blocks = extract_executable_code_blocks(&ast);
         let outputs = execute_code_blocks(&blocks);
         let placed = with_output_nodes(&ast);
         let ast = fill_output_blocks(&placed, &mut outputs.into_iter());
-        
+
         let nodes = build_render_nodes(&ast);
 
         Self {
@@ -418,24 +418,43 @@ impl TuiApp {
                         }
                     }
                 }
-                RenderNode::CodeBlock { lang, code } => {
-                    let block_text = format!("```{}\n{}\n```", lang, code);
-                    let lines: Vec<_> = block_text.lines().collect();
-                    for (i, line) in lines.iter().enumerate().skip(skip) {
-                        if i - skip >= remaining_height {
-                            break;
-                        }
-                        let y = current_line
-                            .saturating_sub(offset)
-                            .saturating_add(i)
-                            .saturating_sub(skip) as u16;
+                RenderNode::CodeBlock {
+                    lang,
+                    code,
+                    executable,
+                } => {
+                    let is_focused = self.scroll.focused_index == output_box_index;
+                    let status = if *executable {
+                        self.get_code_status(0)
+                    } else {
+                        "no exec".to_string()
+                    };
+
+                    let header = format!(" {} │ {} ", lang, status);
+                    let code_lines: Vec<_> = code
+                        .lines()
+                        .map(|l| {
+                            ratatui::text::Line::from(ratatui::text::Span::styled(
+                                l.to_string(),
+                                ratatui::style::Style::default()
+                                    .fg(ratatui::style::Color::DarkGray),
+                            ))
+                        })
+                        .collect();
+                    let visible_lines = node_lines.saturating_sub(skip);
+                    let box_height = visible_lines.min(remaining_height) as u16;
+                    if box_height > 0 && current_line < offset + area.height as usize {
+                        let y = (current_line.saturating_sub(offset)) as u16;
                         if y < area.height {
-                            frame.render_widget(
-                                ratatui::widgets::Paragraph::new(line.to_string()).style(
-                                    ratatui::style::Style::default()
-                                        .fg(ratatui::style::Color::DarkGray),
-                                ),
-                                ratatui::layout::Rect::new(0, y, area.width, 1),
+                            output_box::ScrollableBox {
+                                header,
+                                content: code_lines,
+                                is_focused,
+                                skip_lines: skip,
+                            }
+                            .render(
+                                ratatui::layout::Rect::new(0, y, area.width, box_height),
+                                frame.buffer_mut(),
                             );
                         }
                     }

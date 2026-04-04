@@ -248,6 +248,7 @@ mod tests {
         let node = RenderNode::CodeBlock {
             lang: "sh".to_string(),
             code: "line1\nline2\nline3".to_string(),
+            executable: false,
         };
         let lines = node.line_count(80);
         assert_eq!(lines, 5);
