@@ -64,8 +64,19 @@ pub struct TuiApp {
 
 impl TuiApp {
     pub fn new(input: &str, _previous_content: Option<&str>) -> Self {
+        use crate::execute_code_blocks::execute_code_blocks;
+        use crate::extract_code_blocks::extract_executable_code_blocks;
+        use crate::fill_output_blocks::fill_output_blocks;
+        use crate::with_output_nodes::with_output_nodes;
+        
         let ast = to_mdast(input, &ParseOptions::default()).expect("Failed to parse markdown");
-        let ast = with_output_nodes(&ast);
+        
+        // Same pipeline as literate_docs
+        let blocks = extract_executable_code_blocks(&ast);
+        let outputs = execute_code_blocks(&blocks);
+        let placed = with_output_nodes(&ast);
+        let ast = fill_output_blocks(&placed, &mut outputs.into_iter());
+        
         let nodes = build_render_nodes(&ast);
 
         Self {
@@ -82,17 +93,6 @@ impl TuiApp {
     }
 
     pub async fn run(&mut self) -> Option<Node> {
-        if self
-            .nodes
-            .iter()
-            .filter(|n| matches!(n, RenderNode::OutputBlock { .. }))
-            .count()
-            == 0
-        {
-            println!("No executable code blocks found.");
-            return None;
-        }
-
         let result = self.run_inner().await;
 
         TerminalGuard::cleanup();

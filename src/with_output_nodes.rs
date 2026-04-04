@@ -47,11 +47,6 @@ pub fn with_output_nodes(node: &Node) -> Node {
         while i < children.len() {
             let child = &children[i];
 
-            if is_output_node(child) {
-                i += 1;
-                continue;
-            }
-
             if is_executable_node(child) {
                 let placed = process_node(child);
                 result.push(placed);
@@ -66,6 +61,11 @@ pub fn with_output_nodes(node: &Node) -> Node {
                     result.push(create_empty_output_placeholder());
                     i += 1;
                 }
+                continue;
+            }
+
+            if is_output_node(child) {
+                i += 1;
                 continue;
             }
 
