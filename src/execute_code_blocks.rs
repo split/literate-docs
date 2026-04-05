@@ -119,11 +119,16 @@ pub fn is_executable(lang: &str) -> bool {
         .any(|config| config.aliases.contains(&lang))
 }
 
+pub struct CompileStep {
+    pub tool: &'static str,
+    pub args: &'static [&'static str],
+}
+
 pub struct CommandTemplate {
     pub tool: &'static str,
     pub args: &'static [&'static str],
     pub inline: bool,
-    pub run_after: Option<(&'static str, &'static [&'static str])>,
+    pub compile: Option<CompileStep>,
 }
 
 pub struct LanguageConfig {
@@ -138,7 +143,7 @@ const LANGUAGES: &[LanguageConfig] = &[
             tool: "/bin/sh",
             args: &["-c"],
             inline: true,
-            run_after: None,
+            compile: None,
         }],
     },
     LanguageConfig {
@@ -147,7 +152,7 @@ const LANGUAGES: &[LanguageConfig] = &[
             tool: "python3",
             args: &["-c"],
             inline: true,
-            run_after: None,
+            compile: None,
         }],
     },
     LanguageConfig {
@@ -157,25 +162,25 @@ const LANGUAGES: &[LanguageConfig] = &[
                 tool: "node_modules/.bin/node",
                 args: &["-e"],
                 inline: true,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "node_modules/.bin/bun",
                 args: &["-e"],
                 inline: true,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "node",
                 args: &["-e"],
                 inline: true,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "bun",
                 args: &["-e"],
                 inline: true,
-                run_after: None,
+                compile: None,
             },
         ],
     },
@@ -185,7 +190,7 @@ const LANGUAGES: &[LanguageConfig] = &[
             tool: "ruby",
             args: &["-e"],
             inline: true,
-            run_after: None,
+            compile: None,
         }],
     },
     LanguageConfig {
@@ -194,7 +199,7 @@ const LANGUAGES: &[LanguageConfig] = &[
             tool: "perl",
             args: &["-e"],
             inline: true,
-            run_after: None,
+            compile: None,
         }],
     },
     LanguageConfig {
@@ -203,7 +208,7 @@ const LANGUAGES: &[LanguageConfig] = &[
             tool: "php",
             args: &["-r"],
             inline: true,
-            run_after: None,
+            compile: None,
         }],
     },
     LanguageConfig {
@@ -212,16 +217,19 @@ const LANGUAGES: &[LanguageConfig] = &[
             tool: "go",
             args: &["run", "{input}"],
             inline: false,
-            run_after: None,
+            compile: None,
         }],
     },
     LanguageConfig {
         aliases: &["rust"],
         commands: &[CommandTemplate {
-            tool: "rustc",
-            args: &["-o", "{output}", "{input}"],
-            inline: false,
-            run_after: Some(("{output}", &[])),
+            tool: "{output}",
+            args: &[],
+            inline: true,
+            compile: Some(CompileStep {
+                tool: "rustc",
+                args: &["-o", "{output}", "{input}"],
+            }),
         }],
     },
     LanguageConfig {
@@ -231,49 +239,49 @@ const LANGUAGES: &[LanguageConfig] = &[
                 tool: "node_modules/.bin/ts-node",
                 args: &["-e"],
                 inline: true,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "node_modules/.bin/tsx",
                 args: &[],
                 inline: false,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "node_modules/.bin/bun",
                 args: &["-e"],
                 inline: true,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "node_modules/.bin/node",
                 args: &["--experimental-strip-types"],
                 inline: false,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "ts-node",
                 args: &["-e"],
                 inline: true,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "tsx",
                 args: &[],
                 inline: false,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "bun",
                 args: &["-e"],
                 inline: true,
-                run_after: None,
+                compile: None,
             },
             CommandTemplate {
                 tool: "node",
                 args: &["--experimental-strip-types"],
                 inline: false,
-                run_after: None,
+                compile: None,
             },
         ],
     },
@@ -366,27 +374,38 @@ fn run_with_file(resolved: &Path, args: &[&str], code: &str, temp_dir: &Path) ->
     }
 }
 
-fn run_with_file_and_after(
-    resolved: &Path,
-    args: &[&str],
+fn run_with_compile(
+    _compile_resolved: &Path,
+    compile_tool: &str,
+    compile_args: &[&str],
+    run_args: &[&str],
     code: &str,
     temp_dir: &Path,
-    after_tool: &str,
-    after_args: &[&str],
+    inline: bool,
 ) -> Option<String> {
     fs::create_dir_all(temp_dir).ok()?;
 
-    let input_file = temp_dir.join("main");
+    let input_file = temp_dir
+        .join("main")
+        .with_extension(if compile_tool.contains("rustc") {
+            "rs"
+        } else if compile_tool.contains("tsc") {
+            "ts"
+        } else {
+            ""
+        });
     fs::write(&input_file, code).ok()?;
 
-    let resolved_args: Vec<String> = args
+    let output_file = temp_dir.join("output");
+
+    let resolved_compile_args: Vec<String> = compile_args
         .iter()
         .map(|a| resolve_arg(a, temp_dir, &input_file))
         .collect();
 
-    let compile_output = Command::new(resolved).args(&resolved_args).output();
-
-    let _ = fs::remove_file(&input_file);
+    let compile_output = Command::new(compile_tool)
+        .args(&resolved_compile_args)
+        .output();
 
     let compiled = compile_output.ok()?;
     if !compiled.status.success() {
@@ -399,15 +418,25 @@ fn run_with_file_and_after(
         );
     }
 
-    let output_file = temp_dir.join("output");
-    let run_tool = resolve_arg(after_tool, temp_dir, &input_file);
-    let run_args: Vec<String> = after_args
+    let tool_to_run = if inline {
+        if compile_tool.contains("rustc") {
+            output_file.to_string_lossy().to_string()
+        } else {
+            String::new()
+        }
+    } else {
+        resolve_arg(run_args.iter().next().unwrap_or(&""), temp_dir, &input_file)
+    };
+
+    let resolved_run_args: Vec<String> = run_args
         .iter()
+        .skip(1)
         .map(|a| resolve_arg(a, temp_dir, &input_file))
         .collect();
 
-    let run_output = Command::new(&run_tool).args(&run_args).output();
+    let run_output = Command::new(&tool_to_run).args(&resolved_run_args).output();
 
+    let _ = fs::remove_file(&input_file);
     let _ = fs::remove_file(&output_file);
 
     let out = run_output.ok()?;
@@ -422,13 +451,23 @@ fn run_with_file_and_after(
 
 fn execute_language(config: &LanguageConfig, code: &str) -> String {
     for cmd in config.commands {
-        let Some(resolved) = detect_tool(cmd.tool) else {
+        let tool_to_check = cmd.compile.as_ref().map(|c| c.tool).unwrap_or(cmd.tool);
+
+        let Some(resolved) = detect_tool(tool_to_check) else {
             continue;
         };
 
-        let result = if let Some((after_tool, after_args)) = cmd.run_after {
+        let result = if let Some(compile) = &cmd.compile {
             let temp_dir = unique_temp_dir();
-            run_with_file_and_after(&resolved, cmd.args, code, &temp_dir, after_tool, after_args)
+            run_with_compile(
+                &resolved,
+                &compile.tool,
+                compile.args,
+                cmd.args,
+                code,
+                &temp_dir,
+                cmd.inline,
+            )
         } else if cmd.inline {
             run_inline(&resolved, cmd.args, code)
         } else {
