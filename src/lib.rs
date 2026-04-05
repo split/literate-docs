@@ -3,6 +3,7 @@ pub mod extract_code_blocks;
 pub mod fill_output_blocks;
 pub mod literate_docs;
 pub mod render_markdown;
+pub mod stream_execute;
 pub mod tui;
 pub mod with_output_nodes;
 
