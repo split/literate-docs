@@ -119,18 +119,15 @@ pub fn is_executable(lang: &str) -> bool {
         .any(|config| config.aliases.contains(&lang))
 }
 
-pub struct CompileStep {
-    pub tool: &'static str,
-    pub args: &'static [&'static str],
-    pub run_tool: &'static str,
-    pub run_args: &'static [&'static str],
-}
-
-pub struct CommandTemplate {
+pub struct ExecCommand {
     pub tool: &'static str,
     pub args: &'static [&'static str],
     pub inline: bool,
-    pub compile: Option<CompileStep>,
+}
+
+pub struct CommandTemplate {
+    pub run: ExecCommand,
+    pub compile: Option<ExecCommand>,
 }
 
 pub struct LanguageConfig {
@@ -142,18 +139,22 @@ const LANGUAGES: &[LanguageConfig] = &[
     LanguageConfig {
         aliases: &["sh", "bash", "shell"],
         commands: &[CommandTemplate {
-            tool: "/bin/sh",
-            args: &["-c"],
-            inline: true,
+            run: ExecCommand {
+                tool: "/bin/sh",
+                args: &["-c"],
+                inline: true,
+            },
             compile: None,
         }],
     },
     LanguageConfig {
         aliases: &["python", "python3"],
         commands: &[CommandTemplate {
-            tool: "python3",
-            args: &["-c"],
-            inline: true,
+            run: ExecCommand {
+                tool: "python3",
+                args: &["-c"],
+                inline: true,
+            },
             compile: None,
         }],
     },
@@ -161,27 +162,35 @@ const LANGUAGES: &[LanguageConfig] = &[
         aliases: &["js", "javascript", "node"],
         commands: &[
             CommandTemplate {
-                tool: "node_modules/.bin/node",
-                args: &["-e"],
-                inline: true,
+                run: ExecCommand {
+                    tool: "node_modules/.bin/node",
+                    args: &["-e"],
+                    inline: true,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "node_modules/.bin/bun",
-                args: &["-e"],
-                inline: true,
+                run: ExecCommand {
+                    tool: "node_modules/.bin/bun",
+                    args: &["-e"],
+                    inline: true,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "node",
-                args: &["-e"],
-                inline: true,
+                run: ExecCommand {
+                    tool: "node",
+                    args: &["-e"],
+                    inline: true,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "bun",
-                args: &["-e"],
-                inline: true,
+                run: ExecCommand {
+                    tool: "bun",
+                    args: &["-e"],
+                    inline: true,
+                },
                 compile: None,
             },
         ],
@@ -189,50 +198,59 @@ const LANGUAGES: &[LanguageConfig] = &[
     LanguageConfig {
         aliases: &["ruby"],
         commands: &[CommandTemplate {
-            tool: "ruby",
-            args: &["-e"],
-            inline: true,
+            run: ExecCommand {
+                tool: "ruby",
+                args: &["-e"],
+                inline: true,
+            },
             compile: None,
         }],
     },
     LanguageConfig {
         aliases: &["perl"],
         commands: &[CommandTemplate {
-            tool: "perl",
-            args: &["-e"],
-            inline: true,
+            run: ExecCommand {
+                tool: "perl",
+                args: &["-e"],
+                inline: true,
+            },
             compile: None,
         }],
     },
     LanguageConfig {
         aliases: &["php"],
         commands: &[CommandTemplate {
-            tool: "php",
-            args: &["-r"],
-            inline: true,
+            run: ExecCommand {
+                tool: "php",
+                args: &["-r"],
+                inline: true,
+            },
             compile: None,
         }],
     },
     LanguageConfig {
         aliases: &["go"],
         commands: &[CommandTemplate {
-            tool: "go",
-            args: &["run", "{input}"],
-            inline: false,
+            run: ExecCommand {
+                tool: "go",
+                args: &["run", "{input}"],
+                inline: false,
+            },
             compile: None,
         }],
     },
     LanguageConfig {
         aliases: &["rust"],
         commands: &[CommandTemplate {
-            tool: "",
-            args: &[],
-            inline: true,
-            compile: Some(CompileStep {
+            run: ExecCommand {
+                tool: "{output}",
+                args: &[],
+                inline: true,
+            },
+            compile: Some(ExecCommand {
                 tool: "rustc",
                 args: &["-o", "{output}", "{input}"],
-                run_tool: "{output}",
-                run_args: &[],
+                inline: false,
             }),
         }],
     },
@@ -240,51 +258,67 @@ const LANGUAGES: &[LanguageConfig] = &[
         aliases: &["ts", "typescript"],
         commands: &[
             CommandTemplate {
-                tool: "node_modules/.bin/ts-node",
-                args: &["-e"],
-                inline: true,
+                run: ExecCommand {
+                    tool: "node_modules/.bin/ts-node",
+                    args: &["-e"],
+                    inline: true,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "node_modules/.bin/tsx",
-                args: &[],
-                inline: false,
+                run: ExecCommand {
+                    tool: "node_modules/.bin/tsx",
+                    args: &[],
+                    inline: false,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "node_modules/.bin/bun",
-                args: &["-e"],
-                inline: true,
+                run: ExecCommand {
+                    tool: "node_modules/.bin/bun",
+                    args: &["-e"],
+                    inline: true,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "node_modules/.bin/node",
-                args: &["--experimental-strip-types"],
-                inline: false,
+                run: ExecCommand {
+                    tool: "node_modules/.bin/node",
+                    args: &["--experimental-strip-types"],
+                    inline: false,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "ts-node",
-                args: &["-e"],
-                inline: true,
+                run: ExecCommand {
+                    tool: "ts-node",
+                    args: &["-e"],
+                    inline: true,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "tsx",
-                args: &[],
-                inline: false,
+                run: ExecCommand {
+                    tool: "tsx",
+                    args: &[],
+                    inline: false,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "bun",
-                args: &["-e"],
-                inline: true,
+                run: ExecCommand {
+                    tool: "bun",
+                    args: &["-e"],
+                    inline: true,
+                },
                 compile: None,
             },
             CommandTemplate {
-                tool: "node",
-                args: &["--experimental-strip-types"],
-                inline: false,
+                run: ExecCommand {
+                    tool: "node",
+                    args: &["--experimental-strip-types"],
+                    inline: false,
+                },
                 compile: None,
             },
         ],
@@ -451,7 +485,7 @@ fn run_with_compile(
 
 fn execute_language(config: &LanguageConfig, code: &str) -> String {
     for cmd in config.commands {
-        let tool_to_check = cmd.compile.as_ref().map(|c| c.tool).unwrap_or(cmd.tool);
+        let tool_to_check = cmd.compile.as_ref().map(|c| c.tool).unwrap_or(cmd.run.tool);
 
         let Some(resolved) = detect_tool(tool_to_check) else {
             continue;
@@ -462,16 +496,16 @@ fn execute_language(config: &LanguageConfig, code: &str) -> String {
             run_with_compile(
                 &compile.tool,
                 compile.args,
-                compile.run_tool,
-                compile.run_args,
+                cmd.run.tool,
+                cmd.run.args,
                 code,
                 &temp_dir,
             )
-        } else if cmd.inline {
-            run_inline(&resolved, cmd.args, code)
+        } else if cmd.run.inline {
+            run_inline(&resolved, cmd.run.args, code)
         } else {
             let temp_dir = unique_temp_dir();
-            run_with_file(&resolved, cmd.args, code, &temp_dir)
+            run_with_file(&resolved, cmd.run.args, code, &temp_dir)
         };
 
         if let Some(output) = result {
@@ -485,7 +519,7 @@ fn execute_language(config: &LanguageConfig, code: &str) -> String {
         config
             .commands
             .iter()
-            .map(|c| c.tool)
+            .map(|c| c.run.tool)
             .collect::<Vec<_>>()
             .join(", ")
     )
@@ -526,14 +560,14 @@ mod tests {
     fn test_find_language_shell() {
         let lang = find_language("sh");
         assert!(lang.is_some());
-        assert_eq!(lang.unwrap().commands[0].tool, "/bin/sh");
+        assert_eq!(lang.unwrap().commands[0].run.tool, "/bin/sh");
     }
 
     #[test]
     fn test_find_language_python() {
         let lang = find_language("python");
         assert!(lang.is_some());
-        assert_eq!(lang.unwrap().commands[0].tool, "python3");
+        assert_eq!(lang.unwrap().commands[0].run.tool, "python3");
     }
 
     #[test]

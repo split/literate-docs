@@ -44,12 +44,12 @@ pub fn spawn_execution_stream(
             return;
         };
 
-        if let Some(compile) = &cmd.compile {
-            run_with_compile(cmd, compile, &code, &tx, index, start).await;
-        } else if cmd.inline {
-            run_inline(cmd, &code, &tx, index, start).await;
+        if cmd.compile.is_some() {
+            run_with_compile(cmd, &code, &tx, index, start).await;
+        } else if cmd.run.inline {
+            run_inline(&cmd.run, &code, &tx, index, start).await;
         } else {
-            run_with_file(cmd, &code, &tx, index, start).await;
+            run_with_file(&cmd.run, &code, &tx, index, start).await;
         }
     });
 }
@@ -131,7 +131,7 @@ async fn spawn_and_stream(
 }
 
 async fn run_inline(
-    cmd: &super::execute_code_blocks::CommandTemplate,
+    cmd: &super::execute_code_blocks::ExecCommand,
     code: &str,
     tx: &mpsc::Sender<(usize, ExecutionEvent)>,
     index: usize,
@@ -159,7 +159,7 @@ async fn run_inline(
 }
 
 async fn run_with_file(
-    cmd: &super::execute_code_blocks::CommandTemplate,
+    cmd: &super::execute_code_blocks::ExecCommand,
     code: &str,
     tx: &mpsc::Sender<(usize, ExecutionEvent)>,
     index: usize,
@@ -210,13 +210,13 @@ async fn run_with_file(
 }
 
 async fn run_with_compile(
-    _cmd: &super::execute_code_blocks::CommandTemplate,
-    compile: &super::execute_code_blocks::CompileStep,
+    cmd: &super::execute_code_blocks::CommandTemplate,
     code: &str,
     tx: &mpsc::Sender<(usize, ExecutionEvent)>,
     index: usize,
     start: Instant,
 ) {
+    let compile = cmd.compile.as_ref().expect("compile must be present");
     let Some(compile_resolved) = super::execute_code_blocks::detect_tool(compile.tool) else {
         send_completed(
             tx,
@@ -271,7 +271,7 @@ async fn run_with_compile(
         return;
     }
 
-    let tool_to_run = resolve_arg_compile(compile.run_tool, &temp_dir, &input_file, &output_file);
+    let tool_to_run = resolve_arg_compile(cmd.run.tool, &temp_dir, &input_file, &output_file);
 
     if tool_to_run.is_empty() {
         let _ = fs::remove_file(&output_file);
@@ -286,8 +286,9 @@ async fn run_with_compile(
         return;
     }
 
-    let run_args: Vec<String> = compile
-        .run_args
+    let run_args: Vec<String> = cmd
+        .run
+        .args
         .iter()
         .map(|a| resolve_arg_compile(a, &temp_dir, &input_file, &output_file))
         .collect();
