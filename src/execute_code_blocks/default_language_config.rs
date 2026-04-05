@@ -1,8 +1,12 @@
+use std::sync::RwLock;
+
 use super::language_config::{
     find_language_in, is_executable_in, CommandTemplate, ExecCommand, LanguageConfig,
 };
 
-const LANGUAGES: &[LanguageConfig] = &[
+static LANGUAGES: RwLock<&'static [LanguageConfig]> = RwLock::new(&LANGUAGES_DEFAULT);
+
+const LANGUAGES_DEFAULT: &[LanguageConfig] = &[
     LanguageConfig {
         aliases: &["sh", "bash", "shell"],
         commands: &[CommandTemplate {
@@ -192,10 +196,18 @@ const LANGUAGES: &[LanguageConfig] = &[
     },
 ];
 
+pub fn get_languages() -> &'static [LanguageConfig] {
+    *LANGUAGES.read().unwrap()
+}
+
+pub fn set_languages(config: &'static [LanguageConfig]) {
+    *LANGUAGES.write().unwrap() = config;
+}
+
 pub fn find_language(lang: &str) -> Option<&'static LanguageConfig> {
-    find_language_in(LANGUAGES, lang)
+    find_language_in(get_languages(), lang)
 }
 
 pub fn is_executable(lang: &str) -> bool {
-    is_executable_in(LANGUAGES, lang)
+    is_executable_in(get_languages(), lang)
 }
