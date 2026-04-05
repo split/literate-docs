@@ -122,6 +122,8 @@ pub fn is_executable(lang: &str) -> bool {
 pub struct CompileStep {
     pub tool: &'static str,
     pub args: &'static [&'static str],
+    pub run_tool: &'static str,
+    pub run_args: &'static [&'static str],
 }
 
 pub struct CommandTemplate {
@@ -223,12 +225,14 @@ const LANGUAGES: &[LanguageConfig] = &[
     LanguageConfig {
         aliases: &["rust"],
         commands: &[CommandTemplate {
-            tool: "{output}",
+            tool: "",
             args: &[],
             inline: true,
             compile: Some(CompileStep {
                 tool: "rustc",
                 args: &["-o", "{output}", "{input}"],
+                run_tool: "{output}",
+                run_args: &[],
             }),
         }],
     },
@@ -336,6 +340,20 @@ fn resolve_arg(arg: &str, temp_dir: &Path, input_file: &Path) -> String {
     }
 }
 
+fn resolve_arg_compile(
+    arg: &str,
+    temp_dir: &Path,
+    input_file: &Path,
+    output_file: &Path,
+) -> String {
+    match arg {
+        "{input}" => input_file.to_string_lossy().to_string(),
+        "{output}" => output_file.to_string_lossy().to_string(),
+        "{dir}" => temp_dir.to_string_lossy().to_string(),
+        _ => arg.to_string(),
+    }
+}
+
 fn run_inline(resolved: &Path, args: &[&str], code: &str) -> Option<String> {
     let output = Command::new(resolved).args(args).arg(code).output().ok()?;
     if output.status.success() {
@@ -375,32 +393,23 @@ fn run_with_file(resolved: &Path, args: &[&str], code: &str, temp_dir: &Path) ->
 }
 
 fn run_with_compile(
-    _compile_resolved: &Path,
     compile_tool: &str,
     compile_args: &[&str],
+    run_tool: &str,
     run_args: &[&str],
     code: &str,
     temp_dir: &Path,
-    inline: bool,
 ) -> Option<String> {
     fs::create_dir_all(temp_dir).ok()?;
 
-    let input_file = temp_dir
-        .join("main")
-        .with_extension(if compile_tool.contains("rustc") {
-            "rs"
-        } else if compile_tool.contains("tsc") {
-            "ts"
-        } else {
-            ""
-        });
+    let input_file = temp_dir.join("main");
     fs::write(&input_file, code).ok()?;
 
     let output_file = temp_dir.join("output");
 
     let resolved_compile_args: Vec<String> = compile_args
         .iter()
-        .map(|a| resolve_arg(a, temp_dir, &input_file))
+        .map(|a| resolve_arg_compile(a, temp_dir, &input_file, &output_file))
         .collect();
 
     let compile_output = Command::new(compile_tool)
@@ -418,20 +427,11 @@ fn run_with_compile(
         );
     }
 
-    let tool_to_run = if inline {
-        if compile_tool.contains("rustc") {
-            output_file.to_string_lossy().to_string()
-        } else {
-            String::new()
-        }
-    } else {
-        resolve_arg(run_args.iter().next().unwrap_or(&""), temp_dir, &input_file)
-    };
+    let tool_to_run = resolve_arg_compile(run_tool, temp_dir, &input_file, &output_file);
 
     let resolved_run_args: Vec<String> = run_args
         .iter()
-        .skip(1)
-        .map(|a| resolve_arg(a, temp_dir, &input_file))
+        .map(|a| resolve_arg_compile(a, temp_dir, &input_file, &output_file))
         .collect();
 
     let run_output = Command::new(&tool_to_run).args(&resolved_run_args).output();
@@ -460,13 +460,12 @@ fn execute_language(config: &LanguageConfig, code: &str) -> String {
         let result = if let Some(compile) = &cmd.compile {
             let temp_dir = unique_temp_dir();
             run_with_compile(
-                &resolved,
                 &compile.tool,
                 compile.args,
-                cmd.args,
+                compile.run_tool,
+                compile.run_args,
                 code,
                 &temp_dir,
-                cmd.inline,
             )
         } else if cmd.inline {
             run_inline(&resolved, cmd.args, code)

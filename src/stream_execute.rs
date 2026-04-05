@@ -167,6 +167,7 @@ async fn run_with_file(
 ) {
     let temp_dir = std::env::temp_dir();
     let input_file = temp_dir.join("main");
+    let output_file = temp_dir.join("output");
 
     if let Err(e) = fs::write(&input_file, code) {
         send_completed(
@@ -196,7 +197,7 @@ async fn run_with_file(
     let args: Vec<String> = cmd
         .args
         .iter()
-        .map(|a| resolve_arg(a, &temp_dir, &input_file, None))
+        .map(|a| resolve_arg_compile(a, &temp_dir, &input_file, &output_file))
         .collect();
 
     let mut c = Command::new(&resolved);
@@ -209,7 +210,7 @@ async fn run_with_file(
 }
 
 async fn run_with_compile(
-    cmd: &super::execute_code_blocks::CommandTemplate,
+    _cmd: &super::execute_code_blocks::CommandTemplate,
     compile: &super::execute_code_blocks::CompileStep,
     code: &str,
     tx: &mpsc::Sender<(usize, ExecutionEvent)>,
@@ -229,9 +230,7 @@ async fn run_with_compile(
     };
 
     let temp_dir = std::env::temp_dir();
-    let input_file = temp_dir
-        .join("main")
-        .with_extension(get_extension(compile.tool));
+    let input_file = temp_dir.join("main");
     let output_file = temp_dir.join("output");
 
     if let Err(e) = fs::write(&input_file, code) {
@@ -249,7 +248,7 @@ async fn run_with_compile(
     let compile_args: Vec<String> = compile
         .args
         .iter()
-        .map(|a| resolve_arg(a, &temp_dir, &input_file, Some(&output_file)))
+        .map(|a| resolve_arg_compile(a, &temp_dir, &input_file, &output_file))
         .collect();
 
     let mut c = Command::new(&compile_resolved);
@@ -272,20 +271,7 @@ async fn run_with_compile(
         return;
     }
 
-    let tool_to_run = if cmd.inline {
-        if compile.tool.contains("rustc") {
-            output_file.to_string_lossy().to_string()
-        } else {
-            String::new()
-        }
-    } else {
-        resolve_arg_compile(
-            cmd.args.first().unwrap_or(&""),
-            &temp_dir,
-            &input_file,
-            &output_file,
-        )
-    };
+    let tool_to_run = resolve_arg_compile(compile.run_tool, &temp_dir, &input_file, &output_file);
 
     if tool_to_run.is_empty() {
         let _ = fs::remove_file(&output_file);
@@ -300,10 +286,9 @@ async fn run_with_compile(
         return;
     }
 
-    let run_args: Vec<String> = cmd
-        .args
+    let run_args: Vec<String> = compile
+        .run_args
         .iter()
-        .skip(1)
         .map(|a| resolve_arg_compile(a, &temp_dir, &input_file, &output_file))
         .collect();
 
@@ -314,22 +299,6 @@ async fn run_with_compile(
     let (output, success) = spawn_and_stream(&mut c, tx, index).await;
     let _ = fs::remove_file(&output_file);
     send_completed(tx, index, start, output, success).await;
-}
-
-fn resolve_arg(
-    arg: &str,
-    temp_dir: &Path,
-    input_file: &Path,
-    output_file: Option<&PathBuf>,
-) -> String {
-    match arg {
-        "{input}" => input_file.to_string_lossy().to_string(),
-        "{output}" => output_file
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default(),
-        "{dir}" => temp_dir.to_string_lossy().to_string(),
-        _ => arg.to_string(),
-    }
 }
 
 fn resolve_arg_compile(
@@ -343,15 +312,5 @@ fn resolve_arg_compile(
         "{output}" => output_file.to_string_lossy().to_string(),
         "{dir}" => temp_dir.to_string_lossy().to_string(),
         _ => arg.to_string(),
-    }
-}
-
-fn get_extension(compile_tool: &str) -> &str {
-    if compile_tool.contains("rustc") {
-        "rs"
-    } else if compile_tool.contains("tsc") {
-        "ts"
-    } else {
-        ""
     }
 }
