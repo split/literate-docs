@@ -17,7 +17,21 @@ A literate programming tool that parses markdown files containing code blocks, e
 * Shell: `sh`, `bash`, `shell`
 * Python: `python`, `python3`
 * JavaScript: `js`, `javascript`, `node`
+* TypeScript: `ts`, `typescript`
 * Ruby, Perl, PHP, Go, Rust
+
+## Supported Runtimes
+
+For JavaScript and TypeScript, the tool tries runtimes in this order:
+
+**JavaScript:**
+1. Node.js (local, then global)
+
+**TypeScript:**
+1. ts-node (local, then global)
+2. tsx (local, then global)
+3. Bun (local, then global)
+4. Node.js with `--experimental-strip-types` (local, then global)
 
 ## Installation
 
