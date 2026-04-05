@@ -1,7 +1,6 @@
-use std::path::PathBuf;
-use std::process::Command;
-
-use super::language_config::{CommandTemplate, ExecCommand, LanguageConfig};
+use super::language_config::{
+    find_language_in, is_executable_in, CommandTemplate, ExecCommand, LanguageConfig,
+};
 
 const LANGUAGES: &[LanguageConfig] = &[
     LanguageConfig {
@@ -213,33 +212,10 @@ pub const EXECUTABLE_LANGUAGES: &[&str] = &[
     "rust",
 ];
 
-pub fn find_language_in<'a>(
-    languages: &'a [LanguageConfig],
-    lang: &str,
-) -> Option<&'a LanguageConfig> {
-    languages
-        .iter()
-        .find(|config| config.aliases.contains(&lang))
-}
-
-pub fn is_executable_in(languages: &[LanguageConfig], lang: &str) -> bool {
-    languages
-        .iter()
-        .any(|config| config.aliases.contains(&lang))
-}
-
 pub fn find_language(lang: &str) -> Option<&'static LanguageConfig> {
     find_language_in(LANGUAGES, lang)
 }
 
 pub fn is_executable(lang: &str) -> bool {
     is_executable_in(LANGUAGES, lang)
-}
-
-pub fn detect_tool(tool: &str) -> Option<PathBuf> {
-    if Command::new(tool).arg("--version").output().is_ok() {
-        Some(PathBuf::from(tool))
-    } else {
-        None
-    }
 }

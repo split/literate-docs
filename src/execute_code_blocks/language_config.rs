@@ -110,6 +110,21 @@ pub struct LanguageConfig {
     pub commands: &'static [CommandTemplate],
 }
 
+pub fn find_language_in<'a>(
+    languages: &'a [LanguageConfig],
+    lang: &str,
+) -> Option<&'a LanguageConfig> {
+    languages
+        .iter()
+        .find(|config| config.aliases.contains(&lang))
+}
+
+pub fn is_executable_in(languages: &[LanguageConfig], lang: &str) -> bool {
+    languages
+        .iter()
+        .any(|config| config.aliases.contains(&lang))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

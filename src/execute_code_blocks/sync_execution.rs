@@ -2,11 +2,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::execute_code_blocks::default_language_config::{detect_tool, find_language};
-
+use crate::execute_code_blocks::default_language_config::find_language;
 use crate::execute_code_blocks::language_config::{
     CommandTemplate, ExecutableCodeBlock, LanguageConfig,
 };
+
+pub fn detect_tool(tool: &str) -> Option<PathBuf> {
+    if Command::new(tool).arg("--version").output().is_ok() {
+        Some(PathBuf::from(tool))
+    } else {
+        None
+    }
+}
 
 pub fn execute_code(lang: &str, code: &str) -> Option<String> {
     let config = find_language(lang)?;
