@@ -3,9 +3,7 @@ pub mod language_config;
 pub mod streaming_execution;
 pub mod sync_execution;
 
-pub use default_language_config::{
-    find_language, is_executable, EXECUTABLE_LANGUAGES, LANGUAGES_SLICE,
-};
+pub use default_language_config::{find_language, is_executable};
 
 pub use language_config::{
     find_language_in, is_executable_code_node, is_executable_in, is_executable_node,

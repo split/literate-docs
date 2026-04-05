@@ -192,26 +192,6 @@ const LANGUAGES: &[LanguageConfig] = &[
     },
 ];
 
-pub const LANGUAGES_SLICE: &[LanguageConfig] = LANGUAGES;
-
-pub const EXECUTABLE_LANGUAGES: &[&str] = &[
-    "sh",
-    "bash",
-    "shell",
-    "python",
-    "python3",
-    "js",
-    "javascript",
-    "node",
-    "ts",
-    "typescript",
-    "ruby",
-    "perl",
-    "php",
-    "go",
-    "rust",
-];
-
 pub fn find_language(lang: &str) -> Option<&'static LanguageConfig> {
     find_language_in(LANGUAGES, lang)
 }
