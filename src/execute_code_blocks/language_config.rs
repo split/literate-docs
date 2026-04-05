@@ -113,17 +113,17 @@ pub struct LanguageConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use markdown::mdast::{Code, Html};
+    use markdown::{to_mdast, ParseOptions};
+
+    fn parse(input: &str) -> Vec<Node> {
+        let ast = to_mdast(input, &ParseOptions::default()).unwrap();
+        ast.children().unwrap().to_vec()
+    }
 
     #[test]
     fn test_executable_code_block_from_code_with_exec() {
-        let node = &Node::Code(Code {
-            value: "echo hello".to_string(),
-            lang: Some("sh".to_string()),
-            meta: Some("exec".to_string()),
-            position: None,
-        });
-        let result = ExecutableCodeBlock::try_from(node);
+        let nodes = parse("```sh exec\necho hello\n```");
+        let result = ExecutableCodeBlock::try_from(&nodes[0]);
         assert!(result.is_ok());
         let block = result.unwrap();
         assert_eq!(block.lang, "sh");
@@ -133,35 +133,22 @@ mod tests {
 
     #[test]
     fn test_executable_code_block_from_code_without_exec() {
-        let node = &Node::Code(Code {
-            value: "echo hello".to_string(),
-            lang: Some("sh".to_string()),
-            meta: None,
-            position: None,
-        });
-        let result = ExecutableCodeBlock::try_from(node);
+        let nodes = parse("```sh\ncode\n```");
+        let result = ExecutableCodeBlock::try_from(&nodes[0]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_executable_code_block_from_code_unknown_lang() {
-        let node = &Node::Code(Code {
-            value: "graph TD; A-->B;".to_string(),
-            lang: Some("mermaid".to_string()),
-            meta: Some("exec".to_string()),
-            position: None,
-        });
-        let result = ExecutableCodeBlock::try_from(node);
+        let nodes = parse("```mermaid exec\ngraph TD; A-->B;\n```");
+        let result = ExecutableCodeBlock::try_from(&nodes[0]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_executable_code_block_from_hidden_comment() {
-        let node = &Node::Html(Html {
-            value: "<!-- sh exec: echo hello -->".to_string(),
-            position: None,
-        });
-        let result = ExecutableCodeBlock::try_from(node);
+        let nodes = parse("<!-- sh exec: echo hello -->");
+        let result = ExecutableCodeBlock::try_from(&nodes[0]);
         assert!(result.is_ok());
         let block = result.unwrap();
         assert_eq!(block.lang, "sh");
@@ -171,53 +158,34 @@ mod tests {
 
     #[test]
     fn test_executable_code_block_from_non_exec_comment() {
-        let node = &Node::Html(Html {
-            value: "<!-- some comment -->".to_string(),
-            position: None,
-        });
-        let result = ExecutableCodeBlock::try_from(node);
+        let nodes = parse("<!-- some comment -->");
+        let result = ExecutableCodeBlock::try_from(&nodes[0]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_executable_code_block_from_invalid_comment() {
-        let node = &Node::Html(Html {
-            value: "<!-- sh: echo hello -->".to_string(),
-            position: None,
-        });
-        let result = ExecutableCodeBlock::try_from(node);
+        let nodes = parse("<!-- sh: echo hello -->");
+        let result = ExecutableCodeBlock::try_from(&nodes[0]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_is_executable_code_node_with_exec() {
-        let node = &Node::Code(Code {
-            value: "echo hello".to_string(),
-            lang: Some("sh".to_string()),
-            meta: Some("exec".to_string()),
-            position: None,
-        });
-        assert!(is_executable_code_node(node));
+        let nodes = parse("```sh exec\ncode\n```");
+        assert!(is_executable_code_node(&nodes[0]));
     }
 
     #[test]
     fn test_is_executable_code_node_without_exec() {
-        let node = &Node::Code(Code {
-            value: "echo hello".to_string(),
-            lang: Some("sh".to_string()),
-            meta: None,
-            position: None,
-        });
-        assert!(!is_executable_code_node(node));
+        let nodes = parse("```sh\ncode\n```");
+        assert!(!is_executable_code_node(&nodes[0]));
     }
 
     #[test]
     fn test_is_hidden_executable_comment_valid() {
-        let node = &Node::Html(Html {
-            value: "<!-- sh exec: echo hello -->".to_string(),
-            position: None,
-        });
-        let result = is_hidden_executable_comment(node);
+        let nodes = parse("<!-- sh exec: echo hello -->");
+        let result = is_hidden_executable_comment(&nodes[0]);
         assert!(result.is_some());
         let (lang, code) = result.unwrap();
         assert_eq!(lang, "sh");
@@ -226,31 +194,20 @@ mod tests {
 
     #[test]
     fn test_is_hidden_executable_comment_invalid() {
-        let node = &Node::Html(Html {
-            value: "<!-- not exec: echo hello -->".to_string(),
-            position: None,
-        });
-        let result = is_hidden_executable_comment(node);
+        let nodes = parse("<!-- not exec: echo hello -->");
+        let result = is_hidden_executable_comment(&nodes[0]);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_is_executable_node_code() {
-        let node = &Node::Code(Code {
-            value: "echo hello".to_string(),
-            lang: Some("sh".to_string()),
-            meta: Some("exec".to_string()),
-            position: None,
-        });
-        assert!(is_executable_node(node));
+        let nodes = parse("```sh exec\ncode\n```");
+        assert!(is_executable_node(&nodes[0]));
     }
 
     #[test]
     fn test_is_executable_node_hidden_comment() {
-        let node = &Node::Html(Html {
-            value: "<!-- sh exec: echo hello -->".to_string(),
-            position: None,
-        });
-        assert!(is_executable_node(node));
+        let nodes = parse("<!-- sh exec: echo hello -->");
+        assert!(is_executable_node(&nodes[0]));
     }
 }
