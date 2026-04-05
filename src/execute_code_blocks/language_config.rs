@@ -109,3 +109,148 @@ pub struct LanguageConfig {
     pub aliases: &'static [&'static str],
     pub commands: &'static [CommandTemplate],
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use markdown::mdast::{Code, Html};
+
+    #[test]
+    fn test_executable_code_block_from_code_with_exec() {
+        let node = &Node::Code(Code {
+            value: "echo hello".to_string(),
+            lang: Some("sh".to_string()),
+            meta: Some("exec".to_string()),
+            position: None,
+        });
+        let result = ExecutableCodeBlock::try_from(node);
+        assert!(result.is_ok());
+        let block = result.unwrap();
+        assert_eq!(block.lang, "sh");
+        assert_eq!(block.code, "echo hello");
+        assert!(!block.hidden);
+    }
+
+    #[test]
+    fn test_executable_code_block_from_code_without_exec() {
+        let node = &Node::Code(Code {
+            value: "echo hello".to_string(),
+            lang: Some("sh".to_string()),
+            meta: None,
+            position: None,
+        });
+        let result = ExecutableCodeBlock::try_from(node);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_executable_code_block_from_code_unknown_lang() {
+        let node = &Node::Code(Code {
+            value: "graph TD; A-->B;".to_string(),
+            lang: Some("mermaid".to_string()),
+            meta: Some("exec".to_string()),
+            position: None,
+        });
+        let result = ExecutableCodeBlock::try_from(node);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_executable_code_block_from_hidden_comment() {
+        let node = &Node::Html(Html {
+            value: "<!-- sh exec: echo hello -->".to_string(),
+            position: None,
+        });
+        let result = ExecutableCodeBlock::try_from(node);
+        assert!(result.is_ok());
+        let block = result.unwrap();
+        assert_eq!(block.lang, "sh");
+        assert_eq!(block.code, "echo hello");
+        assert!(block.hidden);
+    }
+
+    #[test]
+    fn test_executable_code_block_from_non_exec_comment() {
+        let node = &Node::Html(Html {
+            value: "<!-- some comment -->".to_string(),
+            position: None,
+        });
+        let result = ExecutableCodeBlock::try_from(node);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_executable_code_block_from_invalid_comment() {
+        let node = &Node::Html(Html {
+            value: "<!-- sh: echo hello -->".to_string(),
+            position: None,
+        });
+        let result = ExecutableCodeBlock::try_from(node);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_is_executable_code_node_with_exec() {
+        let node = &Node::Code(Code {
+            value: "echo hello".to_string(),
+            lang: Some("sh".to_string()),
+            meta: Some("exec".to_string()),
+            position: None,
+        });
+        assert!(is_executable_code_node(node));
+    }
+
+    #[test]
+    fn test_is_executable_code_node_without_exec() {
+        let node = &Node::Code(Code {
+            value: "echo hello".to_string(),
+            lang: Some("sh".to_string()),
+            meta: None,
+            position: None,
+        });
+        assert!(!is_executable_code_node(node));
+    }
+
+    #[test]
+    fn test_is_hidden_executable_comment_valid() {
+        let node = &Node::Html(Html {
+            value: "<!-- sh exec: echo hello -->".to_string(),
+            position: None,
+        });
+        let result = is_hidden_executable_comment(node);
+        assert!(result.is_some());
+        let (lang, code) = result.unwrap();
+        assert_eq!(lang, "sh");
+        assert_eq!(code, "echo hello");
+    }
+
+    #[test]
+    fn test_is_hidden_executable_comment_invalid() {
+        let node = &Node::Html(Html {
+            value: "<!-- not exec: echo hello -->".to_string(),
+            position: None,
+        });
+        let result = is_hidden_executable_comment(node);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_is_executable_node_code() {
+        let node = &Node::Code(Code {
+            value: "echo hello".to_string(),
+            lang: Some("sh".to_string()),
+            meta: Some("exec".to_string()),
+            position: None,
+        });
+        assert!(is_executable_node(node));
+    }
+
+    #[test]
+    fn test_is_executable_node_hidden_comment() {
+        let node = &Node::Html(Html {
+            value: "<!-- sh exec: echo hello -->".to_string(),
+            position: None,
+        });
+        assert!(is_executable_node(node));
+    }
+}
