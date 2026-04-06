@@ -1,53 +1,60 @@
 # literate-docs
 
-A literate programming tool that parses markdown files containing code blocks, executes the code, and embeds the output back into the document.
+Code and documentation live in separate worlds. Docs rot the moment they're written — examples go stale, outputs change, and nobody notices until a user reports it.
 
-## Features
+**literate-docs** keeps them together. Write executable code blocks in your markdown, run the tool, and get your docs back with live output embedded. Run it again and the output updates. Your documentation stays in sync with reality.
 
-* **Execute code blocks** - Runs code in known languages marked with `exec`
-* **Hidden code blocks** - Use HTML comments (`<!-- sh exec: code -->`) to hide source in markdown renderers
-* **Output formats** - Supports both code block (` ```output `) and comment (`<!-- output: -->`) formats
-* **Idempotent** - Running twice produces the same output (quine-like property)
-* **Skip unknown languages** - Code blocks with unsupported languages are passed through unchanged
-* **Format preservation** - Output format matches any existing output block
-* **Interactive TUI** - Live scrollable document with streaming output
+## How It Looks
 
-## Supported Languages
+**Input:**
 
-* Shell: `sh`, `bash`, `shell`
-* Python: `python`, `python3`
-* JavaScript: `js`, `javascript`, `node`
-* TypeScript: `ts`, `typescript`
-* Ruby, Perl, PHP, Go, Rust
+````markdown
+```sh exec
+echo "Result: $((2 + 2))"
+```
+````
 
-## Supported Runtimes
+**After running `literate-docs`:**
 
-For JavaScript and TypeScript, the tool tries runtimes in this order:
+````markdown
+```sh exec
+echo "Result: $((2 + 2))"
+```
 
-**JavaScript:**
-1. Node.js (local, then global)
+```output
+Result: 4
+```
+````
 
-**TypeScript:**
-1. ts-node (local, then global)
-2. tsx (local, then global)
-3. Bun (local, then global)
-4. Node.js with `--experimental-strip-types` (local, then global)
+The code executes, the output is captured and embedded. Next time you run it, the output refreshes automatically.
 
-## Installation
+## How It Works
+
+```mermaid
+flowchart LR
+    A[Markdown file] --> B[Parse code blocks]
+    B --> C[Execute marked blocks]
+    C --> D[Capture output]
+    D --> E[Embed back into document]
+    E --> F[Docs always in sync]
+```
+
+## Quick Start
 
 ```bash
-# Build from source
-cargo build --release
+cargo install --path .
+literate-docs your-file.md
+```
 
-# Or run directly
+Or without installing:
+
+```bash
 cargo run -- your-file.md
 ```
 
-## Usage
+Add `--write` (`-w`) to update the file in place, or `--interactive` (`-i`) for a live TUI view with streaming output.
 
-```sh exec
-literate-docs --help
-```
+<!-- sh exec: cargo run -- --help -->
 
 ```output
 Usage: literate-docs [OPTIONS] [FILE]
@@ -64,93 +71,28 @@ Options:
   -V, --version        Print version
 ```
 
-## Examples
+## Features
 
-### Input
+* **Execute code blocks** — Any block marked with `exec` runs and its output is embedded
+* **Hidden code blocks** — Use `<!-- sh exec: ... -->` to hide source in rendered markdown while still executing
+* **Idempotent** — Running twice produces the same result. Existing output blocks are detected and replaced
+* **Format preservation** — Output matches the existing style (code block or comment)
+* **Interactive TUI** — Live scrollable document with streaming output
+* **Graceful fallback** — Unknown languages pass through unchanged
 
-````markdown
-```sh exec
-echo "Hello, World!"
-```
-````
+## Supported Languages
 
-### Output
-
-````markdown
-```sh exec
-echo "Hello, World!"
-```
-
-```output
-Hello, World!
-```
-````
-
-### Comment Format
-
-If the input already contains a comment output block:
-
-```sh exec
-echo "Hello"
-```
-
-<!-- output: Hello -->
-
-The tool will preserve the comment format and produce:
-
-```sh exec
-echo "Hello"
-```
-
-<!-- output: Hello -->
-
-### Hidden Code Blocks
-
-You can hide the source code in markdown renderers using HTML comments:
-
-```markdown
-<!-- sh exec: echo "Hidden in renderers" -->
-```
-
-The source code is hidden (invisible in most markdown renderers), but the output is shown:
-
-```markdown
-<!-- sh exec: echo "Hidden in renderers" -->
-
-```output
-Hidden in renderers
-```
-```
-
-<!-- output: Hello -->
-````
-
-The tool will preserve the comment format and produce:
-
-````markdown
-```sh exec
-echo "Hello"
-```
-
-<!-- output: Hello -->
-````
-
-### Idempotency
-
-Running the tool multiple times produces the same result:
-
-```bash
-literate-docs input.md > output.md
-literate-docs output.md > output.md  # Same result
-```
-
-## How It Works
-
-1. Parse markdown to extract code blocks
-2. Identify code blocks with a supported language and the `exec` keyword
-3. Execute code and capture stdout
-4. Add output block after the code block
-5. Use format detection to match existing output style
+| Language | Identifiers | Tools (priority order) |
+|----------|-------------|------------------------|
+| Shell | `sh`, `bash`, `shell` | `/bin/sh` |
+| Python | `python`, `python3` | `python3` |
+| JavaScript | `js`, `javascript`, `node` | `node`, `bun` |
+| TypeScript | `ts`, `typescript` | `ts-node`, `tsx`, `bun`, `node --experimental-strip-types` |
+| Ruby | `ruby` | `ruby` |
+| Perl | `perl` | `perl` |
+| PHP | `php` | `php` |
+| Go | `go` | `go run` |
+| Rust | `rust` | `rustc` |
 
 ## License
 
