@@ -31,7 +31,7 @@ The code executes, the output is captured and embedded. Next time you run it, th
 ## How It Works
 
 ```mermaid
-flowchart LR
+flowchart TD
     A[Markdown file] --> B[Parse code blocks]
     B --> C[Execute marked blocks]
     C --> D[Capture output]
