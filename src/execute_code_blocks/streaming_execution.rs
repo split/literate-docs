@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -6,7 +7,7 @@ use tokio::sync::mpsc;
 
 use crate::execute_code_blocks::default_language_config::find_language;
 use crate::execute_code_blocks::language_config::{CommandTemplate, ExecCommand};
-use crate::execute_code_blocks::sync_execution::{detect_tool, resolve_arg_compile};
+use crate::execute_code_blocks::sync_execution::{resolve_arg_compile, resolve_commands};
 
 #[derive(Debug, Clone)]
 pub enum ExecutionEvent {
@@ -35,25 +36,34 @@ pub fn spawn_execution_stream(
             return;
         };
 
-        let Some(cmd) = config.commands.first() else {
-            send_completed(
-                &tx,
-                index,
-                start,
-                "Error: No command configured".to_string(),
-                false,
-            )
-            .await;
+        for (cmd, resolved) in resolve_commands(config) {
+            if cmd.compile.is_some() {
+                run_with_compile(cmd, &resolved, &code, &tx, index, start).await;
+            } else if cmd.run.inline {
+                run_inline(&cmd.run, &resolved, &code, &tx, index, start).await;
+            } else {
+                run_with_file(&cmd.run, &resolved, &code, &tx, index, start).await;
+            }
             return;
-        };
-
-        if cmd.compile.is_some() {
-            run_with_compile(cmd, &code, &tx, index, start).await;
-        } else if cmd.run.inline {
-            run_inline(&cmd.run, &code, &tx, index, start).await;
-        } else {
-            run_with_file(&cmd.run, &code, &tx, index, start).await;
         }
+
+        send_completed(
+            &tx,
+            index,
+            start,
+            format!(
+                "Error: No runtime found for {}. Available: {}",
+                config.aliases[0],
+                config
+                    .commands
+                    .iter()
+                    .map(|c| c.run.tool)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            false,
+        )
+        .await;
     });
 }
 
@@ -135,24 +145,13 @@ async fn spawn_and_stream(
 
 async fn run_inline(
     cmd: &ExecCommand,
+    resolved: &Path,
     code: &str,
     tx: &mpsc::Sender<(usize, ExecutionEvent)>,
     index: usize,
     start: Instant,
 ) {
-    let Some(resolved) = detect_tool(cmd.tool) else {
-        send_completed(
-            tx,
-            index,
-            start,
-            format!("Error: {} not found", cmd.tool),
-            false,
-        )
-        .await;
-        return;
-    };
-
-    let mut c = Command::new(&resolved);
+    let mut c = Command::new(resolved);
     c.args(cmd.args)
         .arg(code)
         .stdout(std::process::Stdio::piped())
@@ -163,6 +162,7 @@ async fn run_inline(
 
 async fn run_with_file(
     cmd: &ExecCommand,
+    resolved: &Path,
     code: &str,
     tx: &mpsc::Sender<(usize, ExecutionEvent)>,
     index: usize,
@@ -184,26 +184,13 @@ async fn run_with_file(
         return;
     }
 
-    let Some(resolved) = detect_tool(cmd.tool) else {
-        let _ = fs::remove_file(&input_file);
-        send_completed(
-            tx,
-            index,
-            start,
-            format!("Error: {} not found", cmd.tool),
-            false,
-        )
-        .await;
-        return;
-    };
-
     let args: Vec<String> = cmd
         .args
         .iter()
         .map(|a| resolve_arg_compile(a, &temp_dir, &input_file, &output_file))
         .collect();
 
-    let mut c = Command::new(&resolved);
+    let mut c = Command::new(resolved);
     c.args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -214,23 +201,13 @@ async fn run_with_file(
 
 async fn run_with_compile(
     cmd: &CommandTemplate,
+    compile_resolved: &Path,
     code: &str,
     tx: &mpsc::Sender<(usize, ExecutionEvent)>,
     index: usize,
     start: Instant,
 ) {
     let compile = cmd.compile.as_ref().expect("compile must be present");
-    let Some(compile_resolved) = detect_tool(compile.tool) else {
-        send_completed(
-            tx,
-            index,
-            start,
-            format!("Error: {} not found", compile.tool),
-            false,
-        )
-        .await;
-        return;
-    };
 
     let temp_dir = std::env::temp_dir();
     let input_file = temp_dir.join("main");
@@ -254,7 +231,7 @@ async fn run_with_compile(
         .map(|a| resolve_arg_compile(a, &temp_dir, &input_file, &output_file))
         .collect();
 
-    let mut c = Command::new(&compile_resolved);
+    let mut c = Command::new(compile_resolved);
     c.args(&compile_args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());

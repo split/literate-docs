@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::execute_code_blocks::default_language_config::find_language;
-use crate::execute_code_blocks::language_config::{ExecutableCodeBlock, LanguageConfig};
+use crate::execute_code_blocks::language_config::{
+    CommandTemplate, ExecutableCodeBlock, LanguageConfig,
+};
 
 pub fn detect_tool(tool: &str) -> Option<PathBuf> {
     if Command::new(tool).arg("--version").output().is_ok() {
@@ -11,6 +13,15 @@ pub fn detect_tool(tool: &str) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+pub fn resolve_commands(
+    config: &LanguageConfig,
+) -> impl Iterator<Item = (&'static CommandTemplate, PathBuf)> {
+    config.commands.iter().filter_map(|cmd| {
+        let tool_to_check = cmd.compile.as_ref().map(|c| c.tool).unwrap_or(cmd.run.tool);
+        detect_tool(tool_to_check).map(|resolved| (cmd, resolved))
+    })
 }
 
 pub fn execute_code(lang: &str, code: &str) -> Option<String> {
@@ -153,13 +164,7 @@ fn run_with_compile(
 }
 
 fn execute_language(config: &LanguageConfig, code: &str) -> String {
-    for cmd in config.commands {
-        let tool_to_check = cmd.compile.as_ref().map(|c| c.tool).unwrap_or(cmd.run.tool);
-
-        let Some(resolved) = detect_tool(tool_to_check) else {
-            continue;
-        };
-
+    for (cmd, resolved) in resolve_commands(config) {
         let result = if let Some(compile) = &cmd.compile {
             let temp_dir = unique_temp_dir();
             run_with_compile(
