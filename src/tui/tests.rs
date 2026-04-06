@@ -7,6 +7,10 @@ mod tests {
     use crate::tui::TuiApp;
     use markdown::{to_mdast, ParseOptions};
 
+    fn build_nodes(ast: &markdown::mdast::Node) -> Vec<RenderNode> {
+        build_render_nodes(ast, &[])
+    }
+
     // ── Parsing tests ──────────────────────────────────────────────
 
     #[test]
@@ -270,6 +274,7 @@ mod tests {
         let node = RenderNode::OutputBlock {
             code_index: 0,
             state: OutputState::Pending,
+            is_orphan: false,
         };
         let lines = node.line_count(80);
         assert!(lines >= 3);
@@ -285,6 +290,7 @@ mod tests {
                 duration: std::time::Duration::from_millis(10),
                 stderr: String::new(),
             },
+            is_orphan: false,
         };
         let long = RenderNode::OutputBlock {
             code_index: 0,
@@ -294,6 +300,7 @@ mod tests {
                 duration: std::time::Duration::from_millis(10),
                 stderr: String::new(),
             },
+            is_orphan: false,
         };
         assert!(long.line_count(80) > short.line_count(80));
     }
@@ -336,7 +343,7 @@ mod tests {
     fn test_build_render_nodes_skips_output_blocks() {
         let input = "```sh exec\necho hi\n```\n\n```output\nhi\n```";
         let ast = to_mdast(input, &ParseOptions::default()).unwrap();
-        let nodes = build_render_nodes(&ast);
+        let nodes = build_nodes(&ast);
         let exec: Vec<_> = nodes
             .iter()
             .filter(|n| matches!(n, RenderNode::ExecutableCode { .. }))
@@ -355,7 +362,7 @@ mod tests {
         for lang in langs {
             let input = format!("```{} exec\ncode\n```", lang);
             let ast = to_mdast(&input, &ParseOptions::default()).unwrap();
-            let nodes = build_render_nodes(&ast);
+            let nodes = build_nodes(&ast);
             assert!(
                 nodes
                     .iter()
@@ -372,7 +379,7 @@ mod tests {
         for lang in langs {
             let input = format!("```{}\ncode\n```", lang);
             let ast = to_mdast(&input, &ParseOptions::default()).unwrap();
-            let nodes = build_render_nodes(&ast);
+            let nodes = build_nodes(&ast);
             assert!(
                 nodes
                     .iter()
@@ -387,7 +394,7 @@ mod tests {
     fn test_text_between_code_and_output_preserved() {
         let input = "```sh exec\necho hello\n```\n\nText between.\n\n```output\nhello\n```";
         let ast = to_mdast(input, &ParseOptions::default()).unwrap();
-        let nodes = build_render_nodes(&ast);
+        let nodes = build_nodes(&ast);
         assert!(nodes
             .iter()
             .any(|n| matches!(n, RenderNode::ExecutableCode { .. })));

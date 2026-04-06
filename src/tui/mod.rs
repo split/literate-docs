@@ -22,7 +22,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use crate::execute_code_blocks::{is_executable_code_node, spawn_execution_stream, ExecutionEvent};
-use crate::with_output_nodes::is_output_node;
+use crate::output_node::{is_output_node, update_output_value};
 use output_box::{OutputBox, OutputState, OutputType};
 use render::{build_render_nodes, RenderNode};
 use scroll::ScrollState;
@@ -64,20 +64,15 @@ pub struct TuiApp {
 
 impl TuiApp {
     pub fn new(input: &str, _previous_content: Option<&str>) -> Self {
-        use crate::execute_code_blocks::execute_code_blocks;
-        use crate::extract_code_blocks::extract_executable_code_blocks;
-        use crate::fill_output_blocks::fill_output_blocks;
         use crate::with_output_nodes::with_output_nodes;
 
         let ast = to_mdast(input, &ParseOptions::default()).expect("Failed to parse markdown");
 
-        // Same pipeline as literate_docs
-        let blocks = extract_executable_code_blocks(&ast);
-        let outputs = execute_code_blocks(&blocks);
-        let placed = with_output_nodes(&ast);
-        let ast = fill_output_blocks(&placed, &mut outputs.into_iter());
+        let info = with_output_nodes(&ast);
+        let orphans = info.orphans;
+        let ast = info.ast;
 
-        let nodes = build_render_nodes(&ast);
+        let nodes = build_render_nodes(&ast, &orphans);
 
         Self {
             ast,
@@ -108,7 +103,8 @@ impl TuiApp {
                 children: vec![],
                 position: None,
             });
-            Some(std::mem::replace(&mut self.ast, empty))
+            let ast = std::mem::replace(&mut self.ast, empty);
+            Some(crate::output_node::clean_orphans(ast))
         }
     }
 
@@ -163,9 +159,17 @@ impl TuiApp {
     }
 
     fn handle_execution_event(&mut self, idx: usize, event: ExecutionEvent) {
+        let mut update_info = None;
+
         for node in self.nodes.iter_mut() {
-            if let RenderNode::OutputBlock { code_index, state } = node {
-                if *code_index != idx {
+            if let RenderNode::OutputBlock {
+                code_index,
+                state,
+                is_orphan,
+                ..
+            } = node
+            {
+                if *code_index != idx || *is_orphan {
                     continue;
                 }
                 match event {
@@ -192,9 +196,7 @@ impl TuiApp {
                             _ => String::new(),
                         };
 
-                        find_and_update_output_node(&mut self.ast, idx, output);
-
-                        *state = if success {
+                        let new_state = if success {
                             OutputState::Completed {
                                 output: output.clone(),
                                 previous_output: None,
@@ -206,6 +208,25 @@ impl TuiApp {
                                 error: output.clone(),
                             }
                         };
+
+                        update_info = Some((*code_index, output.clone(), new_state));
+                    }
+                }
+            }
+        }
+
+        if let Some((code_index, output, new_state)) = update_info {
+            self.update_ast_output(code_index, &output);
+            for node in self.nodes.iter_mut() {
+                if let RenderNode::OutputBlock {
+                    code_index: ci,
+                    state,
+                    ..
+                } = node
+                {
+                    if *ci == code_index {
+                        *state = new_state;
+                        break;
                     }
                 }
             }
@@ -494,6 +515,7 @@ impl TuiApp {
                 RenderNode::OutputBlock {
                     code_index: _,
                     state,
+                    ..
                 } => {
                     let is_focused = self.scroll.focused_index == output_box_index;
                     let output_type = self
@@ -580,6 +602,7 @@ impl TuiApp {
                 OutputState::Completed { .. } => "✓ done".to_string(),
                 OutputState::Failed { .. } => "✗ error".to_string(),
                 OutputState::Pending => "○ pending".to_string(),
+                OutputState::Orphaned { .. } => "○ orphan".to_string(),
             }
         } else {
             "○ pending".to_string()
@@ -590,7 +613,10 @@ impl TuiApp {
         let (title, sections) = match self.modal {
             ModalView::Output(code_idx) => {
                 let state = self.nodes.iter().find_map(|n| {
-                    if let RenderNode::OutputBlock { code_index, state } = n {
+                    if let RenderNode::OutputBlock {
+                        code_index, state, ..
+                    } = n
+                    {
                         if *code_index == code_idx {
                             Some(state)
                         } else {
@@ -619,7 +645,10 @@ impl TuiApp {
             }
             ModalView::Logs(code_idx) => {
                 let state = self.nodes.iter().find_map(|n| {
-                    if let RenderNode::OutputBlock { code_index, state } = n {
+                    if let RenderNode::OutputBlock {
+                        code_index, state, ..
+                    } = n
+                    {
                         if *code_index == code_idx {
                             Some(state)
                         } else {
@@ -687,6 +716,16 @@ impl TuiApp {
                         OutputState::Pending => (
                             "Build Logs",
                             vec![("logs", vec!["(waiting...)".to_string()])],
+                        ),
+                        OutputState::Orphaned { content } => (
+                            "Orphaned Output",
+                            vec![
+                                (
+                                    "note",
+                                    vec!["(will be removed on quit)".to_string(), String::new()],
+                                ),
+                                ("content", content.lines().map(|l| l.to_string()).collect()),
+                            ],
                         ),
                     }
                 } else {
@@ -802,38 +841,35 @@ impl TuiApp {
                 }
                 OutputState::Completed { output, .. } => (output.lines().count() + 2).max(3),
                 OutputState::Failed { error } => (error.lines().count() + 2).max(3),
+                OutputState::Orphaned { content } => (content.lines().count() + 2).max(3),
             },
         }
     }
-}
-
-fn find_and_update_output_node(ast: &mut Node, target_code_index: usize, output: &str) {
-    fn walk(node: &mut Node, target: usize, output: &str, code_index: &mut usize) -> bool {
-        if let Some(children) = node.children_mut() {
-            for child in children.iter_mut() {
-                if is_output_node(child) {
-                    if code_index.saturating_sub(1) == target {
-                        if let Node::Code(code) = child {
-                            code.value = output.to_string();
-                            return true;
+    fn update_ast_output(&mut self, target_code_index: usize, output: &str) {
+        fn walk(node: &mut Node, target: usize, output: &str, idx: &mut usize) -> bool {
+            if let Some(children) = node.children_mut() {
+                for child in children.iter_mut() {
+                    if is_output_node(child) {
+                        if idx.saturating_sub(1) == target {
+                            return update_output_value(child, output);
                         }
                     }
-                }
 
-                if is_executable_code_node(child) {
-                    *code_index += 1;
-                }
+                    if is_executable_code_node(child) {
+                        *idx += 1;
+                    }
 
-                if walk(child, target, output, code_index) {
-                    return true;
+                    if walk(child, target, output, idx) {
+                        return true;
+                    }
                 }
             }
+            false
         }
-        false
-    }
 
-    let mut code_index = 0;
-    walk(ast, target_code_index, output, &mut code_index);
+        let mut idx = 0;
+        walk(&mut self.ast, target_code_index, output, &mut idx);
+    }
 }
 
 async fn poll_key() -> Option<crossterm::event::KeyEvent> {

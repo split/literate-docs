@@ -2,6 +2,7 @@ pub mod execute_code_blocks;
 pub mod extract_code_blocks;
 pub mod fill_output_blocks;
 pub mod literate_docs;
+pub mod output_node;
 pub mod render_markdown;
 pub mod tui;
 pub mod with_output_nodes;

@@ -3,9 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::execute_code_blocks::default_language_config::find_language;
-use crate::execute_code_blocks::language_config::{
-    CommandTemplate, ExecutableCodeBlock, LanguageConfig,
-};
+use crate::execute_code_blocks::language_config::{ExecutableCodeBlock, LanguageConfig};
 
 pub fn detect_tool(tool: &str) -> Option<PathBuf> {
     if Command::new(tool).arg("--version").output().is_ok() {

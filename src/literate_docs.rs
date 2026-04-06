@@ -1,6 +1,7 @@
 use crate::execute_code_blocks::execute_code_blocks;
 use crate::extract_code_blocks::extract_executable_code_blocks;
 use crate::fill_output_blocks::fill_output_blocks;
+use crate::output_node::clean_orphans;
 use crate::render_markdown::render_markdown;
 use crate::with_output_nodes::with_output_nodes;
 use markdown::mdast::Node;
@@ -8,8 +9,9 @@ use markdown::mdast::Node;
 fn transform_ast(ast: Node) -> Node {
     let blocks = extract_executable_code_blocks(&ast);
     let outputs = execute_code_blocks(&blocks);
-    let placed = with_output_nodes(&ast);
-    fill_output_blocks(&placed, &mut outputs.into_iter())
+    let info = with_output_nodes(&ast);
+    let ast = fill_output_blocks(info, &mut outputs.into_iter());
+    clean_orphans(ast)
 }
 
 pub fn literate_docs(input: &str) -> String {

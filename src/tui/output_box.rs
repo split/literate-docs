@@ -45,6 +45,9 @@ pub enum OutputState {
     Failed {
         error: String,
     },
+    Orphaned {
+        content: String,
+    },
 }
 
 impl OutputState {
@@ -54,6 +57,7 @@ impl OutputState {
             OutputState::Running { .. } => "running",
             OutputState::Completed { .. } => "done",
             OutputState::Failed { .. } => "error",
+            OutputState::Orphaned { .. } => "orphan",
         }
     }
 
@@ -73,6 +77,7 @@ impl OutputState {
                 live_lines.iter().cloned().collect::<Vec<_>>().join("\n")
             }
             OutputState::Pending => String::new(),
+            OutputState::Orphaned { content } => content.clone(),
         }
     }
 
@@ -100,6 +105,7 @@ impl OutputState {
                 lines.join("\n")
             }
             OutputState::Pending => String::new(),
+            OutputState::Orphaned { content } => content.clone(),
         }
     }
 }
@@ -206,6 +212,12 @@ impl OutputBox<'_> {
                 }
             }
             OutputState::Failed { .. } => Span::styled("✗ error", Style::default().fg(Color::Red)),
+            OutputState::Orphaned { .. } => Span::styled(
+                "○ orphan",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(ratatui::style::Modifier::CROSSED_OUT),
+            ),
         }
     }
 
@@ -275,6 +287,17 @@ impl OutputBox<'_> {
                     Line::from(Span::styled(
                         format!("  {}", truncate(l, max_width.saturating_sub(2))),
                         Style::default().fg(Color::Red),
+                    ))
+                })
+                .collect(),
+            OutputState::Orphaned { content } => content
+                .lines()
+                .map(|l| {
+                    Line::from(Span::styled(
+                        format!("  {}", truncate(l, max_width.saturating_sub(2))),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(ratatui::style::Modifier::CROSSED_OUT),
                     ))
                 })
                 .collect(),

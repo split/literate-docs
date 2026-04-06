@@ -1,6 +1,6 @@
 use crate::execute_code_blocks::is_executable_code_node;
+use crate::output_node::{extract_output_content, is_output_node, output_format, OutputEntry};
 use crate::tui::output_box::OutputState;
-use crate::with_output_nodes::is_output_node;
 use markdown::mdast::{Heading, Node, Paragraph, Text as MdText};
 
 #[derive(Debug)]
@@ -22,6 +22,7 @@ pub enum RenderNode {
     OutputBlock {
         code_index: usize,
         state: OutputState,
+        is_orphan: bool,
     },
 }
 
@@ -64,24 +65,43 @@ impl RenderNode {
                 }
                 OutputState::Completed { output, .. } => output.lines().count() + 2,
                 OutputState::Failed { error } => error.lines().count() + 2,
+                OutputState::Orphaned { content } => content.lines().count() + 2,
             },
         }
     }
 }
 
-pub fn build_render_nodes(ast: &Node) -> Vec<RenderNode> {
+pub fn build_render_nodes(
+    ast: &Node,
+    orphans: &[crate::output_node::OutputEntry],
+) -> Vec<RenderNode> {
     let mut nodes = Vec::new();
     let mut code_index = 0;
-    collect_nodes(ast, &mut nodes, &mut code_index);
+    collect_nodes(ast, &mut nodes, &mut code_index, orphans);
     nodes
 }
 
-fn collect_nodes(node: &Node, nodes: &mut Vec<RenderNode>, code_index: &mut usize) {
+fn collect_nodes(
+    node: &Node,
+    nodes: &mut Vec<RenderNode>,
+    code_index: &mut usize,
+    orphans: &[OutputEntry],
+) {
     if is_output_node(node) {
         let idx = code_index.saturating_sub(1);
+        let is_orphan = orphans
+            .iter()
+            .any(|o| o.code_index == idx && output_format(node) == Some(o.format));
+        let state = if is_orphan {
+            let content = extract_output_content(node);
+            OutputState::Orphaned { content }
+        } else {
+            OutputState::Pending
+        };
         nodes.push(RenderNode::OutputBlock {
             code_index: idx,
-            state: OutputState::Pending,
+            state,
+            is_orphan,
         });
         return;
     }
@@ -129,7 +149,7 @@ fn collect_nodes(node: &Node, nodes: &mut Vec<RenderNode>, code_index: &mut usiz
 
     if let Some(children) = node.children() {
         for child in children {
-            collect_nodes(child, nodes, code_index);
+            collect_nodes(child, nodes, code_index, orphans);
         }
     }
 }
