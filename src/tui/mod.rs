@@ -11,8 +11,8 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use crate::render_markdown::parse_markdown;
 use markdown::mdast::Node;
-use markdown::{to_mdast, ParseOptions};
 use ratatui::style::Stylize;
 use ratatui::text::Span;
 use ratatui::widgets::Widget;
@@ -67,7 +67,7 @@ impl TuiApp {
     pub fn new(input: &str, _previous_content: Option<&str>) -> Self {
         use crate::with_output_nodes::with_output_nodes;
 
-        let ast = to_mdast(input, &ParseOptions::default()).expect("Failed to parse markdown");
+        let ast = parse_markdown(input);
 
         let info = with_output_nodes(&ast);
         let orphans = info.orphans;
@@ -458,44 +458,43 @@ impl TuiApp {
                     }
                 }
                 RenderNode::Table { rows } => {
-                    let col_widths = self.compute_col_widths(rows, area.width as usize);
-                    let table_lines: Vec<ratatui::text::Line> = rows
+                    use ratatui::widgets::{Cell, Row, Table};
+
+                    let header_cells: Vec<Cell> = rows[0]
                         .iter()
-                        .enumerate()
-                        .map(|(i, row)| {
-                            let mut spans = vec![Span::from("│ ")];
-                            for (j, cell) in row.iter().enumerate() {
-                                let text: String =
-                                    cell.iter().map(|s| s.content.as_ref()).collect();
-                                let width = col_widths.get(j).copied().unwrap_or(0);
-                                spans.push(Span::from(format!("{:<width$}", text, width = width)));
-                                if j < row.len() - 1 {
-                                    spans.push(Span::from(" │ "));
-                                }
-                            }
-                            spans.push(Span::from(" │"));
-                            let mut line = ratatui::text::Line::from(spans);
-                            if i == 0 {
-                                line.style = ratatui::style::Style::default().bold();
-                            }
-                            line
+                        .map(|cell| {
+                            let text: String = cell.iter().map(|s| s.content.as_ref()).collect();
+                            Cell::from(text)
+                        })
+                        .collect();
+                    let header = Row::new(header_cells)
+                        .style(ratatui::style::Style::default().bold())
+                        .bottom_margin(1);
+
+                    let data_rows: Vec<Row> = rows[1..]
+                        .iter()
+                        .map(|row| {
+                            let cells: Vec<Cell> = row
+                                .iter()
+                                .map(|cell| {
+                                    let text: String =
+                                        cell.iter().map(|s| s.content.as_ref()).collect();
+                                    Cell::from(text)
+                                })
+                                .collect();
+                            Row::new(cells)
                         })
                         .collect();
 
-                    let mut all_lines = table_lines;
-                    let separator: Vec<Span> = {
-                        let mut s = vec![Span::from("├")];
-                        for (j, _) in rows[0].iter().enumerate() {
-                            let width = col_widths.get(j).copied().unwrap_or(0);
-                            s.push(Span::from("─".repeat(width)));
-                            if j < rows[0].len() - 1 {
-                                s.push(Span::from("┼"));
-                            }
-                        }
-                        s.push(Span::from("┤"));
-                        s
-                    };
-                    all_lines.insert(1, ratatui::text::Line::from(separator));
+                    let constraints: Vec<ratatui::layout::Constraint> =
+                        vec![ratatui::layout::Constraint::Fill(1); rows[0].len()];
+
+                    let table = Table::new(data_rows, constraints)
+                        .header(header)
+                        .block(
+                            ratatui::widgets::Block::default()
+                                .borders(ratatui::widgets::Borders::ALL),
+                        );
 
                     let node_height = self.node_rendered_lines(node, area.width as usize);
                     let visible_lines = node_height.saturating_sub(skip);
@@ -504,9 +503,7 @@ impl TuiApp {
                         let y = (current_line.saturating_sub(offset)) as u16;
                         if y < area.height {
                             frame.render_widget(
-                                ratatui::widgets::Paragraph::new(ratatui::text::Text::from(
-                                    all_lines,
-                                )),
+                                table,
                                 ratatui::layout::Rect::new(0, y, area.width, render_height),
                             );
                         }
@@ -937,35 +934,6 @@ impl TuiApp {
             },
         }
     }
-    fn compute_col_widths(&self, rows: &[Vec<Vec<Span>>], terminal_width: usize) -> Vec<usize> {
-        if rows.is_empty() || rows[0].is_empty() {
-            return vec![];
-        }
-        let num_cols = rows[0].len();
-        let mut col_widths = vec![0; num_cols];
-        for row in rows {
-            for (j, cell) in row.iter().enumerate() {
-                let text_len: usize = cell.iter().map(|s| s.content.len()).sum();
-                col_widths[j] = col_widths[j].max(text_len);
-            }
-        }
-        let separator_width = (num_cols - 1) * 3 + 2;
-        let total_fixed = separator_width;
-        let available = terminal_width.saturating_sub(total_fixed);
-        let total_content: usize = col_widths.iter().sum();
-        if total_content == 0 || available == 0 {
-            return col_widths;
-        }
-        let scale = available as f64 / total_content as f64;
-        if scale >= 1.0 {
-            return col_widths;
-        }
-        col_widths
-            .iter()
-            .map(|w| ((*w as f64 * scale).ceil() as usize).max(1))
-            .collect()
-    }
-
     fn update_ast_output(&mut self, target_code_index: usize, output: &str) {
         fn walk(node: &mut Node, target: usize, output: &str, idx: &mut usize) -> bool {
             if let Some(children) = node.children_mut() {

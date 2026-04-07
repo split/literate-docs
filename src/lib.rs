@@ -8,4 +8,4 @@ pub mod tui;
 pub mod with_output_nodes;
 
 pub use literate_docs::literate_docs;
-pub use render_markdown::{render_markdown, render_markdown_from_ast};
+pub use render_markdown::{parse_markdown, render_markdown, render_markdown_from_ast};

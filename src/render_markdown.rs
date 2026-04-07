@@ -2,8 +2,8 @@ use markdown::mdast::Node;
 use markdown::{to_mdast, ParseOptions};
 use mdast_util_to_markdown::to_markdown;
 
-fn parse_markdown(input: &str) -> Node {
-    to_mdast(input, &ParseOptions::default()).expect("Failed to parse markdown")
+pub fn parse_markdown(input: &str) -> Node {
+    to_mdast(input, &ParseOptions::gfm()).expect("Failed to parse markdown")
 }
 
 pub fn render_markdown<F>(input: &str, transform: F) -> String
