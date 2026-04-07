@@ -486,8 +486,37 @@ impl TuiApp {
                         })
                         .collect();
 
-                    let constraints: Vec<ratatui::layout::Constraint> =
-                        vec![ratatui::layout::Constraint::Fill(1); rows[0].len()];
+                    let num_cols = rows[0].len();
+                    let mut col_widths = vec![0u16; num_cols];
+                    for row in rows {
+                        for (j, cell) in row.iter().enumerate() {
+                            let len: u16 = cell
+                                .iter()
+                                .map(|s| s.content.chars().count() as u16)
+                                .sum();
+                            col_widths[j] = col_widths[j].max(len);
+                        }
+                    }
+                    // Add 2 chars padding per column
+                    for w in &mut col_widths {
+                        *w += 2;
+                    }
+                    let total_width: u16 = col_widths.iter().sum::<u16>() + 1;
+                    let term_width = area.width;
+
+                    let constraints: Vec<ratatui::layout::Constraint> = if total_width <= term_width
+                    {
+                        col_widths
+                            .into_iter()
+                            .map(ratatui::layout::Constraint::Length)
+                            .collect()
+                    } else {
+                        let total: u32 = col_widths.iter().map(|w| *w as u32).sum();
+                        col_widths
+                            .into_iter()
+                            .map(|w| ratatui::layout::Constraint::Ratio(w as u32, total))
+                            .collect()
+                    };
 
                     let table = Table::new(data_rows, constraints)
                         .header(header)
