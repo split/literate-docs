@@ -128,10 +128,10 @@ pub fn is_executable_in(languages: &[LanguageConfig], lang: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use markdown::{to_mdast, ParseOptions};
+    use crate::render_markdown::parse_markdown;
 
     fn parse(input: &str) -> Vec<Node> {
-        let ast = to_mdast(input, &ParseOptions::default()).unwrap();
+        let ast = parse_markdown(input);
         ast.children().unwrap().to_vec()
     }
 

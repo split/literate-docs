@@ -1,13 +1,17 @@
 #[cfg(test)]
 mod tests {
+    use crate::render_markdown::parse_markdown;
     use crate::tui::output_box::OutputState;
     use crate::tui::render::{build_render_nodes, extract_spans, RenderNode, TextKind};
     use crate::tui::scroll::ScrollState;
     use crate::tui::TuiApp;
     use markdown::mdast::Node;
-    use markdown::{to_mdast, ParseOptions};
     use ratatui::style::Modifier;
     use ratatui::text::Span;
+
+    fn parse(input: &str) -> Node {
+        parse_markdown(input)
+    }
 
     fn build_nodes(ast: &markdown::mdast::Node) -> Vec<RenderNode> {
         build_render_nodes(ast, &[])
@@ -22,7 +26,7 @@ mod tests {
     }
 
     fn extract_paragraph_children(input: &str) -> Vec<Node> {
-        let ast = to_mdast(input, &ParseOptions::default()).unwrap();
+        let ast = parse(input);
         if let Node::Root(root) = &ast {
             if let Some(Node::Paragraph(p)) = root.children.first() {
                 return p.children.clone();
@@ -290,9 +294,7 @@ mod tests {
 
     #[test]
     fn test_extract_strikethrough() {
-        let mut opts = ParseOptions::default();
-        opts.constructs.gfm_strikethrough = true;
-        let ast = to_mdast("~~deleted~~", &opts).unwrap();
+        let ast = parse("~~deleted~~");
         if let Node::Root(root) = &ast {
             if let Some(Node::Paragraph(p)) = root.children.first() {
                 let spans = extract_spans(&p.children, ratatui::style::Style::default());
@@ -341,7 +343,7 @@ mod tests {
     #[test]
     fn test_build_render_nodes_skips_output_blocks() {
         let input = "```sh exec\necho hi\n```\n\n```output\nhi\n```";
-        let ast = to_mdast(input, &ParseOptions::default()).unwrap();
+        let ast = parse(input);
         let nodes = build_nodes(&ast);
         let exec: Vec<_> = nodes
             .iter()
@@ -360,7 +362,7 @@ mod tests {
         let langs = ["sh", "bash", "python", "js", "node"];
         for lang in langs {
             let input = format!("```{} exec\ncode\n```", lang);
-            let ast = to_mdast(&input, &ParseOptions::default()).unwrap();
+            let ast = parse(&input);
             let nodes = build_nodes(&ast);
             assert!(
                 nodes
@@ -377,7 +379,7 @@ mod tests {
         let langs = ["mermaid", "json", "yaml", "css", "html"];
         for lang in langs {
             let input = format!("```{}\ncode\n```", lang);
-            let ast = to_mdast(&input, &ParseOptions::default()).unwrap();
+            let ast = parse(&input);
             let nodes = build_nodes(&ast);
             assert!(
                 nodes
@@ -392,7 +394,7 @@ mod tests {
     #[test]
     fn test_text_between_code_and_output_preserved() {
         let input = "```sh exec\necho hello\n```\n\nText between.\n\n```output\nhello\n```";
-        let ast = to_mdast(input, &ParseOptions::default()).unwrap();
+        let ast = parse(input);
         let nodes = build_nodes(&ast);
         assert!(nodes
             .iter()

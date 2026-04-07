@@ -81,10 +81,10 @@ pub fn with_output_nodes(node: &Node) -> OutputInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use markdown::{to_mdast, ParseOptions};
+    use crate::render_markdown::parse_markdown;
 
     fn parse(input: &str) -> Node {
-        to_mdast(input, &ParseOptions::default()).unwrap()
+        parse_markdown(input)
     }
 
     #[test]
