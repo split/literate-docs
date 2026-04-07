@@ -460,47 +460,22 @@ impl TuiApp {
                 RenderNode::Table { rows } => {
                     use ratatui::widgets::{Cell, Row, Table};
 
-                    let header_cells: Vec<Cell> = rows[0]
-                        .iter()
-                        .map(|cell| {
-                            let text: String = cell.iter().map(|s| s.content.as_ref()).collect();
-                            Cell::from(text)
-                        })
-                        .collect();
-                    let header = Row::new(header_cells)
-                        .style(ratatui::style::Style::default().bold())
-                        .bottom_margin(1);
-
-                    let data_rows: Vec<Row> = rows[1..]
-                        .iter()
-                        .map(|row| {
-                            let cells: Vec<Cell> = row
-                                .iter()
-                                .map(|cell| {
-                                    let text: String =
-                                        cell.iter().map(|s| s.content.as_ref()).collect();
-                                    Cell::from(text)
-                                })
-                                .collect();
-                            Row::new(cells)
-                        })
-                        .collect();
-
                     let num_cols = rows[0].len();
-                    let mut col_widths = vec![0u16; num_cols];
+                    let mut col_content_widths = vec![0usize; num_cols];
                     for row in rows {
                         for (j, cell) in row.iter().enumerate() {
-                            let len: u16 = cell
+                            let len: usize = cell
                                 .iter()
-                                .map(|s| s.content.chars().count() as u16)
+                                .map(|s| s.content.chars().count())
                                 .sum();
-                            col_widths[j] = col_widths[j].max(len);
+                            col_content_widths[j] = col_content_widths[j].max(len);
                         }
                     }
-                    // Add 2 chars padding per column
-                    for w in &mut col_widths {
-                        *w += 2;
-                    }
+
+                    let col_widths: Vec<u16> = col_content_widths
+                        .iter()
+                        .map(|w| (*w as u16) + 2)
+                        .collect();
                     let total_width: u16 = col_widths.iter().sum::<u16>() + 1;
                     let term_width = area.width;
 
@@ -518,8 +493,35 @@ impl TuiApp {
                             .collect()
                     };
 
+                    let header_cells: Vec<Cell> = rows[0]
+                        .iter()
+                        .enumerate()
+                        .map(|(j, cell)| {
+                            let wrapped = wrap_spans(cell, col_content_widths[j]);
+                            Cell::from(ratatui::text::Text::from(wrapped))
+                        })
+                        .collect();
+                    let header = Row::new(header_cells)
+                        .style(ratatui::style::Style::default().bold());
+
+                    let data_rows: Vec<Row> = rows[1..]
+                        .iter()
+                        .map(|row| {
+                            let cells: Vec<Cell> = row
+                                .iter()
+                                .enumerate()
+                                .map(|(j, cell)| {
+                                    let wrapped = wrap_spans(cell, col_content_widths[j]);
+                                    Cell::from(ratatui::text::Text::from(wrapped))
+                                })
+                                .collect();
+                            Row::new(cells)
+                        })
+                        .collect();
+
                     let table = Table::new(data_rows, constraints)
                         .header(header)
+                        .column_spacing(1)
                         .block(
                             ratatui::widgets::Block::default()
                                 .borders(ratatui::widgets::Borders::ALL),
@@ -939,7 +941,27 @@ impl TuiApp {
                     base
                 }
             }
-            RenderNode::Table { rows } => rows.len() + 2,
+            RenderNode::Table { rows } => {
+                let num_cols = rows[0].len();
+                let mut col_widths = vec![0usize; num_cols];
+                for row in rows {
+                    for (j, cell) in row.iter().enumerate() {
+                        let len: usize = cell.iter().map(|s| s.content.chars().count()).sum();
+                        col_widths[j] = col_widths[j].max(len);
+                    }
+                }
+                let mut height: usize = 0;
+                for row in rows {
+                    let row_height = row
+                        .iter()
+                        .enumerate()
+                        .map(|(j, cell)| wrap_spans(cell, col_widths[j]).len())
+                        .max()
+                        .unwrap_or(1);
+                    height += row_height;
+                }
+                height + 2
+            }
             RenderNode::CodeBlock { code, .. } => code.lines().count() + 2,
             RenderNode::ExecutableCode { code, .. } => code.lines().count() + 2,
             RenderNode::OutputBlock { state, .. } => match state {
@@ -1027,4 +1049,78 @@ fn split_spans_on_newlines(spans: &[Span<'static>]) -> Vec<ratatui::text::Line<'
             }
         })
         .collect()
+}
+
+fn wrap_spans(spans: &[Span<'static>], max_width: usize) -> Vec<ratatui::text::Line<'static>> {
+    let lines = split_spans_on_newlines(spans);
+    let mut result: Vec<ratatui::text::Line<'static>> = Vec::new();
+    for line in lines {
+        let total_width: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+        if total_width <= max_width || total_width == 0 {
+            result.push(line);
+            continue;
+        }
+        let chars_with_style: Vec<(char, ratatui::style::Style)> = line
+            .spans
+            .iter()
+            .flat_map(|span| {
+                span.content
+                    .chars()
+                    .map(move |c| (c, span.style))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let mut pos = 0;
+        while pos < chars_with_style.len() {
+            let remaining = chars_with_style.len() - pos;
+            let chunk = remaining.min(max_width);
+            if chunk == 0 {
+                break;
+            }
+            let end = pos + chunk;
+            let slice = &chars_with_style[pos..end.min(chars_with_style.len())];
+            let break_point = slice
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, (c, _))| *c == ' ')
+                .map(|(i, _)| pos + i + 1);
+
+            let actual_end = break_point.unwrap_or(end.min(chars_with_style.len()));
+            let segment = &chars_with_style[pos..actual_end];
+
+            let mut new_spans: Vec<Span<'static>> = Vec::new();
+            let mut current_str = String::new();
+            let mut current_style = ratatui::style::Style::reset();
+            let mut has_current = false;
+
+            for (ch, style) in segment {
+                if has_current && current_style == *style {
+                    current_str.push(*ch);
+                } else {
+                    if has_current {
+                        new_spans.push(Span::styled(current_str.clone(), current_style));
+                    }
+                    current_str = ch.to_string();
+                    current_style = *style;
+                    has_current = true;
+                }
+            }
+            if has_current {
+                new_spans.push(Span::styled(current_str, current_style));
+            }
+            result.push(ratatui::text::Line::from(new_spans));
+
+            if break_point.is_some() {
+                pos = actual_end;
+            } else {
+                pos = end.min(chars_with_style.len());
+            }
+        }
+    }
+    if result.is_empty() {
+        result.push(ratatui::text::Line::from(""));
+    }
+    result
 }
