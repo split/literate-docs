@@ -1,14 +1,34 @@
 #[cfg(test)]
 mod tests {
     use crate::tui::output_box::OutputState;
-    use crate::tui::render::{build_render_nodes, RenderNode, TextKind};
+    use crate::tui::render::{build_render_nodes, extract_spans, RenderNode, TextKind};
     use crate::tui::scroll::ScrollState;
-    use crate::tui::wrap_text;
     use crate::tui::TuiApp;
+    use markdown::mdast::Node;
     use markdown::{to_mdast, ParseOptions};
+    use ratatui::style::Modifier;
+    use ratatui::text::Span;
 
     fn build_nodes(ast: &markdown::mdast::Node) -> Vec<RenderNode> {
         build_render_nodes(ast, &[])
+    }
+
+    fn has_modifier(style: &ratatui::style::Style, modifier: Modifier) -> bool {
+        style.add_modifier.contains(modifier)
+    }
+
+    fn spans_to_text(spans: &[Span]) -> String {
+        spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    fn extract_paragraph_children(input: &str) -> Vec<Node> {
+        let ast = to_mdast(input, &ParseOptions::default()).unwrap();
+        if let Node::Root(root) = &ast {
+            if let Some(Node::Paragraph(p)) = root.children.first() {
+                return p.children.clone();
+            }
+        }
+        panic!("Expected paragraph in root");
     }
 
     // ── Parsing tests ──────────────────────────────────────────────
@@ -235,106 +255,85 @@ mod tests {
         assert_eq!(scroll.focused_index, 0);
     }
 
-    // ── Line count tests ───────────────────────────────────────────
+    // ── Extract spans tests ────────────────────────────────────────
 
     #[test]
-    fn test_heading_line_count() {
-        let node = RenderNode::Text {
-            content: "Short Title".to_string(),
-            kind: TextKind::Heading(1),
-        };
-        let lines = node.line_count(80);
-        assert!(lines > 0);
+    fn test_extract_plain_text() {
+        let children = extract_paragraph_children("Hello world");
+        let spans = extract_spans(&children, ratatui::style::Style::default());
+        assert_eq!(spans_to_text(&spans), "Hello world");
     }
 
     #[test]
-    fn test_code_block_line_count() {
-        let node = RenderNode::CodeBlock {
-            lang: "sh".to_string(),
-            code: "line1\nline2\nline3".to_string(),
-            executable: false,
-        };
-        let lines = node.line_count(80);
-        assert_eq!(lines, 5);
+    fn test_extract_bold() {
+        let children = extract_paragraph_children("**bold text**");
+        let spans = extract_spans(&children, ratatui::style::Style::default());
+        assert_eq!(spans_to_text(&spans), "bold text");
+        assert!(has_modifier(&spans[0].style, Modifier::BOLD));
     }
 
     #[test]
-    fn test_executable_code_line_count() {
-        let node = RenderNode::ExecutableCode {
-            index: 0,
-            lang: "sh".to_string(),
-            code: "line1\nline2\nline3".to_string(),
-        };
-        let lines = node.line_count(80);
-        assert_eq!(lines, 5);
+    fn test_extract_italic() {
+        let children = extract_paragraph_children("*italic text*");
+        let spans = extract_spans(&children, ratatui::style::Style::default());
+        assert_eq!(spans_to_text(&spans), "italic text");
+        assert!(has_modifier(&spans[0].style, Modifier::ITALIC));
     }
 
     #[test]
-    fn test_pending_output_block_line_count() {
-        let node = RenderNode::OutputBlock {
-            code_index: 0,
-            state: OutputState::Pending,
-            is_orphan: false,
-        };
-        let lines = node.line_count(80);
-        assert!(lines >= 3);
+    fn test_extract_inline_code() {
+        let children = extract_paragraph_children("use `foo` here");
+        let spans = extract_spans(&children, ratatui::style::Style::default());
+        assert_eq!(spans_to_text(&spans), "use `foo` here");
+        assert_eq!(spans[1].style.fg, Some(ratatui::style::Color::Green));
     }
 
     #[test]
-    fn test_line_count_increases_with_output() {
-        let short = RenderNode::OutputBlock {
-            code_index: 0,
-            state: OutputState::Completed {
-                output: "hi".to_string(),
-                previous_output: None,
-                duration: std::time::Duration::from_millis(10),
-                stderr: String::new(),
-            },
-            is_orphan: false,
-        };
-        let long = RenderNode::OutputBlock {
-            code_index: 0,
-            state: OutputState::Completed {
-                output: "line1\nline2\nline3\nline4\nline5".to_string(),
-                previous_output: None,
-                duration: std::time::Duration::from_millis(10),
-                stderr: String::new(),
-            },
-            is_orphan: false,
-        };
-        assert!(long.line_count(80) > short.line_count(80));
-    }
-
-    // ── Wrap text tests ────────────────────────────────────────────
-
-    #[test]
-    fn test_wrap_text_empty() {
-        let lines = wrap_text("", 80);
-        assert_eq!(lines.len(), 0);
+    fn test_extract_strikethrough() {
+        let mut opts = ParseOptions::default();
+        opts.constructs.gfm_strikethrough = true;
+        let ast = to_mdast("~~deleted~~", &opts).unwrap();
+        if let Node::Root(root) = &ast {
+            if let Some(Node::Paragraph(p)) = root.children.first() {
+                let spans = extract_spans(&p.children, ratatui::style::Style::default());
+                assert_eq!(spans_to_text(&spans), "deleted");
+                assert!(has_modifier(&spans[0].style, Modifier::CROSSED_OUT));
+                return;
+            }
+        }
+        panic!("Expected paragraph with strikethrough");
     }
 
     #[test]
-    fn test_wrap_text_shorter_than_width() {
-        let lines = wrap_text("hello", 80);
-        assert_eq!(lines, vec!["hello"]);
+    fn test_extract_link() {
+        let children = extract_paragraph_children("[click here](https://example.com)");
+        let spans = extract_spans(&children, ratatui::style::Style::default());
+        assert_eq!(spans_to_text(&spans), "click here");
+        assert!(has_modifier(&spans[0].style, Modifier::UNDERLINED));
     }
 
     #[test]
-    fn test_wrap_text_splits_at_width() {
-        let lines = wrap_text("1234567890", 5);
-        assert_eq!(lines, vec!["12345", "67890"]);
+    fn test_extract_nested_bold_italic() {
+        let children = extract_paragraph_children("**_bold italic_**");
+        let spans = extract_spans(&children, ratatui::style::Style::default());
+        assert_eq!(spans_to_text(&spans), "bold italic");
+        assert!(has_modifier(&spans[0].style, Modifier::BOLD));
+        assert!(has_modifier(&spans[0].style, Modifier::ITALIC));
     }
 
     #[test]
-    fn test_wrap_text_preserves_line_breaks() {
-        let lines = wrap_text("short\nalso short", 80);
-        assert_eq!(lines.len(), 2);
-    }
-
-    #[test]
-    fn test_wrap_text_zero_width_returns_input() {
-        let lines = wrap_text("hello", 0);
-        assert_eq!(lines, vec!["hello"]);
+    fn test_extract_mixed_inline() {
+        let children = extract_paragraph_children("Use **`bold code`** and *italic* here");
+        let spans = extract_spans(&children, ratatui::style::Style::default());
+        let text = spans_to_text(&spans);
+        assert!(text.contains("bold code"));
+        assert!(text.contains("italic"));
+        let bold_code_span = spans
+            .iter()
+            .find(|s| s.content.contains("bold code"))
+            .unwrap();
+        assert!(has_modifier(&bold_code_span.style, Modifier::BOLD));
+        assert_eq!(bold_code_span.style.fg, Some(ratatui::style::Color::Green));
     }
 
     // ── Build render nodes tests ───────────────────────────────────
@@ -408,5 +407,20 @@ mod tests {
         assert!(nodes
             .iter()
             .any(|n| matches!(n, RenderNode::OutputBlock { .. })));
+    }
+
+    #[test]
+    fn test_executable_and_output_nodes_created() {
+        let input = "```sh exec\necho hello\n```";
+        let app = TuiApp::new(input, None);
+        let has_exec = app
+            .nodes
+            .iter()
+            .any(|n| matches!(n, RenderNode::ExecutableCode { .. }));
+        let has_output = app.nodes.iter().any(|n| {
+            matches!(n, RenderNode::OutputBlock { state, .. } if matches!(state, OutputState::Pending))
+        });
+        assert!(has_exec, "Should have ExecutableCode node");
+        assert!(has_output, "Should have OutputBlock node in Pending state");
     }
 }

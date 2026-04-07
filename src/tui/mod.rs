@@ -14,6 +14,7 @@ use crossterm::{
 use markdown::mdast::Node;
 use markdown::{to_mdast, ParseOptions};
 use ratatui::style::Stylize;
+use ratatui::text::Span;
 use ratatui::widgets::Widget;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::collections::HashMap;
@@ -131,7 +132,10 @@ impl TuiApp {
             .nodes
             .iter()
             .filter_map(|n| {
-                if let RenderNode::ExecutableCode { index, lang, code } = n {
+                if let RenderNode::ExecutableCode {
+                    index, lang, code, ..
+                } = n
+                {
                     Some((*index, lang.clone(), code.clone()))
                 } else {
                     None
@@ -413,28 +417,97 @@ impl TuiApp {
                 RenderNode::Text { content, kind } => {
                     let prefix = match kind {
                         render::TextKind::Heading(level) => {
-                            format!("{} ", "#".repeat(*level as usize))
+                            vec![ratatui::text::Span::styled(
+                                format!("{} ", "#".repeat(*level as usize)),
+                                ratatui::style::Style::default().bold(),
+                            )]
                         }
-                        _ => String::new(),
+                        _ => vec![],
                     };
                     let style = match kind {
                         render::TextKind::Heading(_) => ratatui::style::Style::default().bold(),
                         _ => ratatui::style::Style::default(),
                     };
 
-                    let wrapped = wrap_text(&format!("{}{}", prefix, content), area.width as usize);
-                    for (i, line) in wrapped.iter().enumerate().skip(skip) {
-                        if i - skip >= remaining_height {
-                            break;
-                        }
-                        let y = current_line
-                            .saturating_sub(offset)
-                            .saturating_add(i)
-                            .saturating_sub(skip) as u16;
+                    let mut spans = prefix;
+                    spans.extend(content.clone());
+
+                    let mut lines: Vec<ratatui::text::Line> = split_spans_on_newlines(&spans);
+
+                    // Add blank line before headings that aren't the first node
+                    if matches!(kind, render::TextKind::Heading(_)) && node_idx > 0 {
+                        lines.insert(0, ratatui::text::Line::from(""));
+                    }
+
+                    let paragraph =
+                        ratatui::widgets::Paragraph::new(ratatui::text::Text::from(lines))
+                            .style(style)
+                            .wrap(ratatui::widgets::Wrap { trim: true });
+
+                    let node_height = self.node_rendered_lines(node, area.width as usize);
+                    let visible_lines = node_height.saturating_sub(skip);
+                    let render_height = visible_lines.min(remaining_height) as u16;
+                    if render_height > 0 && current_line < offset + area.height as usize {
+                        let y = (current_line.saturating_sub(offset)) as u16;
                         if y < area.height {
                             frame.render_widget(
-                                ratatui::widgets::Paragraph::new(line.clone()).style(style),
-                                ratatui::layout::Rect::new(0, y, area.width, 1),
+                                paragraph,
+                                ratatui::layout::Rect::new(0, y, area.width, render_height),
+                            );
+                        }
+                    }
+                }
+                RenderNode::Table { rows } => {
+                    let col_widths = self.compute_col_widths(rows, area.width as usize);
+                    let table_lines: Vec<ratatui::text::Line> = rows
+                        .iter()
+                        .enumerate()
+                        .map(|(i, row)| {
+                            let mut spans = vec![Span::from("│ ")];
+                            for (j, cell) in row.iter().enumerate() {
+                                let text: String =
+                                    cell.iter().map(|s| s.content.as_ref()).collect();
+                                let width = col_widths.get(j).copied().unwrap_or(0);
+                                spans.push(Span::from(format!("{:<width$}", text, width = width)));
+                                if j < row.len() - 1 {
+                                    spans.push(Span::from(" │ "));
+                                }
+                            }
+                            spans.push(Span::from(" │"));
+                            let mut line = ratatui::text::Line::from(spans);
+                            if i == 0 {
+                                line.style = ratatui::style::Style::default().bold();
+                            }
+                            line
+                        })
+                        .collect();
+
+                    let mut all_lines = table_lines;
+                    let separator: Vec<Span> = {
+                        let mut s = vec![Span::from("├")];
+                        for (j, _) in rows[0].iter().enumerate() {
+                            let width = col_widths.get(j).copied().unwrap_or(0);
+                            s.push(Span::from("─".repeat(width)));
+                            if j < rows[0].len() - 1 {
+                                s.push(Span::from("┼"));
+                            }
+                        }
+                        s.push(Span::from("┤"));
+                        s
+                    };
+                    all_lines.insert(1, ratatui::text::Line::from(separator));
+
+                    let node_height = self.node_rendered_lines(node, area.width as usize);
+                    let visible_lines = node_height.saturating_sub(skip);
+                    let render_height = visible_lines.min(remaining_height) as u16;
+                    if render_height > 0 && current_line < offset + area.height as usize {
+                        let y = (current_line.saturating_sub(offset)) as u16;
+                        if y < area.height {
+                            frame.render_widget(
+                                ratatui::widgets::Paragraph::new(ratatui::text::Text::from(
+                                    all_lines,
+                                )),
+                                ratatui::layout::Rect::new(0, y, area.width, render_height),
                             );
                         }
                     }
@@ -480,11 +553,17 @@ impl TuiApp {
                         }
                     }
                 }
-                RenderNode::ExecutableCode { lang, code, index } => {
+                RenderNode::ExecutableCode {
+                    lang,
+                    code,
+                    index,
+                    hidden,
+                } => {
                     let is_focused = self.scroll.focused_index == output_box_index;
                     let status = self.get_code_status(*index);
 
-                    let header = format!(" {} │ {} ", lang, status);
+                    let hidden_label = if *hidden { " (hidden)" } else { "" };
+                    let header = format!(" {}{} │ {} ", lang, hidden_label, status);
                     let code_lines: Vec<_> = code
                         .lines()
                         .map(|l| {
@@ -815,13 +894,26 @@ impl TuiApp {
     fn node_rendered_lines(&self, node: &RenderNode, terminal_width: usize) -> usize {
         match node {
             RenderNode::Text { content, kind } => {
-                let prefix = match kind {
-                    render::TextKind::Heading(level) => "#".repeat(*level as usize) + " ",
-                    _ => String::new(),
+                let prefix_len = match kind {
+                    render::TextKind::Heading(level) => *level as usize + 1,
+                    _ => 0,
                 };
-                let wrapped = wrap_text(&format!("{}{}", prefix, content), terminal_width);
-                wrapped.len().max(1) + 1
+                let total_len: usize =
+                    content.iter().map(|s| s.content.len()).sum::<usize>() + prefix_len;
+                let newline_count: usize = content
+                    .iter()
+                    .map(|s| s.content.matches('\n').count())
+                    .sum();
+                let wrapped = total_len / terminal_width.max(1);
+                let base = (wrapped.max(1) + 1) + newline_count;
+                // Headings get an extra blank line above them
+                if matches!(kind, render::TextKind::Heading(_)) {
+                    base + 1
+                } else {
+                    base
+                }
             }
+            RenderNode::Table { rows } => rows.len() + 2,
             RenderNode::CodeBlock { code, .. } => code.lines().count() + 2,
             RenderNode::ExecutableCode { code, .. } => code.lines().count() + 2,
             RenderNode::OutputBlock { state, .. } => match state {
@@ -845,6 +937,35 @@ impl TuiApp {
             },
         }
     }
+    fn compute_col_widths(&self, rows: &[Vec<Vec<Span>>], terminal_width: usize) -> Vec<usize> {
+        if rows.is_empty() || rows[0].is_empty() {
+            return vec![];
+        }
+        let num_cols = rows[0].len();
+        let mut col_widths = vec![0; num_cols];
+        for row in rows {
+            for (j, cell) in row.iter().enumerate() {
+                let text_len: usize = cell.iter().map(|s| s.content.len()).sum();
+                col_widths[j] = col_widths[j].max(text_len);
+            }
+        }
+        let separator_width = (num_cols - 1) * 3 + 2;
+        let total_fixed = separator_width;
+        let available = terminal_width.saturating_sub(total_fixed);
+        let total_content: usize = col_widths.iter().sum();
+        if total_content == 0 || available == 0 {
+            return col_widths;
+        }
+        let scale = available as f64 / total_content as f64;
+        if scale >= 1.0 {
+            return col_widths;
+        }
+        col_widths
+            .iter()
+            .map(|w| ((*w as f64 * scale).ceil() as usize).max(1))
+            .collect()
+    }
+
     fn update_ast_output(&mut self, target_code_index: usize, output: &str) {
         fn walk(node: &mut Node, target: usize, output: &str, idx: &mut usize) -> bool {
             if let Some(children) = node.children_mut() {
@@ -883,32 +1004,30 @@ async fn poll_key() -> Option<crossterm::event::KeyEvent> {
     None
 }
 
-fn wrap_text(text: &str, width: usize) -> Vec<String> {
-    if width == 0 {
-        return vec![text.to_string()];
-    }
-
-    let mut lines = Vec::new();
-    for line in text.lines() {
-        if line.is_empty() {
-            lines.push(String::new());
-            continue;
-        }
-        let mut start = 0;
-        while start < line.len() {
-            let end = (start + width).min(line.len());
-            if end >= line.len() {
-                lines.push(line[start..].to_string());
-                break;
+fn split_spans_on_newlines(spans: &[Span<'static>]) -> Vec<ratatui::text::Line<'static>> {
+    let mut lines: Vec<Vec<Span<'static>>> = vec![vec![]];
+    for span in spans {
+        let parts: Vec<&str> = span.content.split('\n').collect();
+        for (i, part) in parts.iter().enumerate() {
+            if i > 0 {
+                lines.push(vec![]);
             }
-            let chunk_end = line[start..end]
-                .char_indices()
-                .last()
-                .map(|(i, c)| start + i + c.len_utf8())
-                .unwrap_or(end);
-            lines.push(line[start..chunk_end].to_string());
-            start = chunk_end;
+            if !part.is_empty() || (i == 0 && parts.len() == 1) {
+                lines
+                    .last_mut()
+                    .unwrap()
+                    .push(Span::styled(part.to_string(), span.style));
+            }
         }
     }
     lines
+        .into_iter()
+        .map(|spans| {
+            if spans.is_empty() {
+                ratatui::text::Line::from("")
+            } else {
+                ratatui::text::Line::from(spans)
+            }
+        })
+        .collect()
 }

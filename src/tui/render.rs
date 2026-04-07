@@ -1,13 +1,20 @@
-use crate::execute_code_blocks::is_executable_code_node;
+use crate::execute_code_blocks::language_config::ExecutableCodeBlock;
 use crate::output_node::{extract_output_content, is_output_node, output_format, OutputEntry};
 use crate::tui::output_box::OutputState;
-use markdown::mdast::{Heading, Node, Paragraph, Text as MdText};
+use markdown::mdast::{
+    Delete, Emphasis, Heading, InlineCode, Link, Node, Paragraph, Strong, Table, Text as MdText,
+};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::Span;
 
 #[derive(Debug)]
 pub enum RenderNode {
     Text {
-        content: String,
+        content: Vec<Span<'static>>,
         kind: TextKind,
+    },
+    Table {
+        rows: Vec<Vec<Vec<Span<'static>>>>,
     },
     CodeBlock {
         lang: String,
@@ -18,6 +25,7 @@ pub enum RenderNode {
         index: usize,
         lang: String,
         code: String,
+        hidden: bool,
     },
     OutputBlock {
         code_index: usize,
@@ -33,43 +41,7 @@ pub enum TextKind {
     Other,
 }
 
-impl RenderNode {
-    #[cfg(test)]
-    pub fn line_count(&self, terminal_width: usize) -> usize {
-        match self {
-            RenderNode::Text { content, kind } => {
-                let prefix = match kind {
-                    TextKind::Heading(level) => "#".repeat(*level as usize) + " ",
-                    TextKind::Paragraph => String::new(),
-                    TextKind::Other => String::new(),
-                };
-                let total_len = prefix.len() + content.len();
-                (total_len / terminal_width).max(1)
-            }
-            RenderNode::CodeBlock { code, .. } => code.lines().count() + 2,
-            RenderNode::ExecutableCode { code, .. } => code.lines().count() + 2,
-            RenderNode::OutputBlock { state, .. } => match state {
-                OutputState::Pending => 3,
-                OutputState::Running {
-                    live_lines,
-                    stderr_lines,
-                    ..
-                } => {
-                    live_lines.len()
-                        + if stderr_lines.is_empty() {
-                            0
-                        } else {
-                            stderr_lines.len() + 1
-                        }
-                        + 2
-                }
-                OutputState::Completed { output, .. } => output.lines().count() + 2,
-                OutputState::Failed { error } => error.lines().count() + 2,
-                OutputState::Orphaned { content } => content.lines().count() + 2,
-            },
-        }
-    }
-}
+impl RenderNode {}
 
 pub fn build_render_nodes(
     ast: &Node,
@@ -110,41 +82,65 @@ fn collect_nodes(
         Node::Heading(Heading {
             children, depth, ..
         }) => {
-            let text = extract_text(children);
-            if !text.is_empty() {
+            let spans = extract_spans(children, Style::default());
+            if !spans.is_empty() {
                 nodes.push(RenderNode::Text {
-                    content: text,
+                    content: spans,
                     kind: TextKind::Heading((*depth).into()),
                 });
             }
         }
         Node::Paragraph(Paragraph { children, .. }) => {
-            let text = extract_text(children);
-            if !text.is_empty() {
+            let spans = extract_spans(children, Style::default());
+            if !spans.is_empty() {
                 nodes.push(RenderNode::Text {
-                    content: text,
+                    content: spans,
                     kind: TextKind::Paragraph,
                 });
             }
         }
-        Node::Code(code) => {
-            let is_executable = is_executable_code_node(node);
-            if is_executable {
-                nodes.push(RenderNode::ExecutableCode {
-                    index: *code_index,
-                    lang: code.lang.as_deref().unwrap_or("").to_string(),
-                    code: code.value.clone(),
-                });
-                *code_index += 1;
-            } else {
-                nodes.push(RenderNode::CodeBlock {
-                    lang: code.lang.as_deref().unwrap_or("").to_string(),
-                    code: code.value.clone(),
-                    executable: false,
-                });
-            }
-        }
         _ => {}
+    }
+
+    if let Ok(block) = ExecutableCodeBlock::try_from(node) {
+        nodes.push(RenderNode::ExecutableCode {
+            index: *code_index,
+            lang: block.lang.clone(),
+            code: block.code.clone(),
+            hidden: block.hidden,
+        });
+        *code_index += 1;
+    } else if let Node::Code(code) = node {
+        nodes.push(RenderNode::CodeBlock {
+            lang: code.lang.as_deref().unwrap_or("").to_string(),
+            code: code.value.clone(),
+            executable: false,
+        });
+    } else if let Node::Table(Table { children, .. }) = node {
+        let rows: Vec<Vec<Vec<Span<'static>>>> = children
+            .iter()
+            .filter_map(|row| {
+                if let Node::TableRow(tr) = row {
+                    let cells: Vec<Vec<Span<'static>>> = tr
+                        .children
+                        .iter()
+                        .map(|cell| {
+                            if let Node::TableCell(tc) = cell {
+                                extract_spans(&tc.children, Style::default())
+                            } else {
+                                vec![Span::from("")]
+                            }
+                        })
+                        .collect();
+                    Some(cells)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !rows.is_empty() {
+            nodes.push(RenderNode::Table { rows });
+        }
     }
 
     if let Some(children) = node.children() {
@@ -154,16 +150,54 @@ fn collect_nodes(
     }
 }
 
-fn extract_text(children: &[Node]) -> String {
-    children
-        .iter()
-        .filter_map(|c| {
-            if let Node::Text(MdText { value, .. }) = c {
-                Some(value.as_str())
-            } else {
-                None
+pub fn extract_spans(children: &[Node], base_style: Style) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for child in children {
+        match child {
+            Node::Text(MdText { value, .. }) => {
+                if !value.is_empty() {
+                    spans.push(Span::styled(value.clone(), base_style));
+                }
             }
-        })
-        .collect::<Vec<_>>()
-        .join("")
+            Node::Strong(Strong { children, .. }) => {
+                let mut style = base_style;
+                style = style.add_modifier(Modifier::BOLD);
+                spans.extend(extract_spans(children, style));
+            }
+            Node::Emphasis(Emphasis { children, .. }) => {
+                let mut style = base_style;
+                style = style.add_modifier(Modifier::ITALIC);
+                spans.extend(extract_spans(children, style));
+            }
+            Node::InlineCode(InlineCode { value, .. }) => {
+                let mut style = base_style;
+                style = style.fg(Color::Green);
+                spans.push(Span::styled(format!("`{}`", value), style));
+            }
+            Node::Delete(Delete { children, .. }) => {
+                let mut style = base_style;
+                style = style.add_modifier(Modifier::CROSSED_OUT);
+                spans.extend(extract_spans(children, style));
+            }
+            Node::Link(Link { children, url, .. }) => {
+                let mut style = base_style;
+                style = style.fg(Color::Blue).add_modifier(Modifier::UNDERLINED);
+                let link_spans = extract_spans(children, style);
+                if link_spans.is_empty() {
+                    spans.push(Span::styled(url.clone(), style));
+                } else {
+                    spans.extend(link_spans);
+                }
+            }
+            Node::Break(_) => {
+                spans.push(Span::styled("\n", base_style));
+            }
+            _ => {
+                if let Some(grandchildren) = child.children() {
+                    spans.extend(extract_spans(grandchildren, base_style));
+                }
+            }
+        }
+    }
+    spans
 }
